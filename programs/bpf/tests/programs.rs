@@ -382,6 +382,7 @@ fn execute_transactions(bank: &Bank, txs: &[Transaction]) -> Vec<ConfirmedTransa
                 post_token_balances: Some(post_token_balances),
                 inner_instructions,
                 log_messages: Some(log_messages),
+                rewards: None,
             };
 
             ConfirmedTransaction {
@@ -438,7 +439,7 @@ fn test_program_bpf_sanity() {
             ("solana_bpf_rust_external_spend", false),
             ("solana_bpf_rust_iter", true),
             ("solana_bpf_rust_many_args", true),
-            ("solana_bpf_rust_mem", true),
+            ("solana_bpf_rust_membuiltins", true),
             ("solana_bpf_rust_noop", true),
             ("solana_bpf_rust_panic", false),
             ("solana_bpf_rust_param_passing", true),
@@ -752,6 +753,9 @@ fn test_program_bpf_invoke_sanity() {
     const TEST_RETURN_ERROR: u8 = 11;
     const TEST_PRIVILEGE_DEESCALATION_ESCALATION_SIGNER: u8 = 12;
     const TEST_PRIVILEGE_DEESCALATION_ESCALATION_WRITABLE: u8 = 13;
+    const TEST_WRITABLE_DEESCALATION_WRITABLE: u8 = 14;
+    const TEST_NESTED_INVOKE_TOO_DEEP: u8 = 15;
+    const TEST_EXECUTABLE_LAMPORTS: u8 = 16;
 
     #[allow(dead_code)]
     #[derive(Debug)]
@@ -826,6 +830,7 @@ fn test_program_bpf_invoke_sanity() {
             AccountMeta::new_readonly(derived_key3, false),
             AccountMeta::new_readonly(solana_sdk::system_program::id(), false),
             AccountMeta::new(from_keypair.pubkey(), true),
+            AccountMeta::new_readonly(invoke_program_id, false),
         ];
 
         // success cases
@@ -848,7 +853,7 @@ fn test_program_bpf_invoke_sanity() {
             bank.last_blockhash(),
         );
         let (result, inner_instructions) = process_transaction_and_record_inner(&bank, tx);
-        assert!(result.is_ok());
+        assert_eq!(result, Ok(()));
 
         let invoked_programs: Vec<Pubkey> = inner_instructions[0]
             .iter()
@@ -870,10 +875,16 @@ fn test_program_bpf_invoke_sanity() {
                 invoked_program_id.clone(),
                 invoked_program_id.clone(),
                 invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
             ],
             Languages::Rust => vec![
                 solana_sdk::system_program::id(),
                 solana_sdk::system_program::id(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
                 invoked_program_id.clone(),
                 invoked_program_id.clone(),
                 invoked_program_id.clone(),
@@ -925,7 +936,7 @@ fn test_program_bpf_invoke_sanity() {
                     .iter()
                     .map(|ix| message.account_keys[ix.program_id_index as usize].clone())
                     .collect();
-                assert_eq!(result.unwrap_err(), expected_error);
+                assert_eq!(result, Err(expected_error));
                 assert_eq!(invoked_programs, expected_invoked_programs);
             };
 
@@ -993,6 +1004,30 @@ fn test_program_bpf_invoke_sanity() {
             TEST_PRIVILEGE_DEESCALATION_ESCALATION_WRITABLE,
             TransactionError::InstructionError(0, InstructionError::PrivilegeEscalation),
             &[invoked_program_id.clone()],
+        );
+
+        do_invoke_failure_test_local(
+            TEST_WRITABLE_DEESCALATION_WRITABLE,
+            TransactionError::InstructionError(0, InstructionError::ReadonlyDataModified),
+            &[invoked_program_id.clone()],
+        );
+
+        do_invoke_failure_test_local(
+            TEST_NESTED_INVOKE_TOO_DEEP,
+            TransactionError::InstructionError(0, InstructionError::CallDepth),
+            &[
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+                invoked_program_id.clone(),
+            ],
+        );
+
+        do_invoke_failure_test_local(
+            TEST_EXECUTABLE_LAMPORTS,
+            TransactionError::InstructionError(0, InstructionError::ExecutableLamportChange),
+            &[invoke_program_id.clone()],
         );
 
         // Check resulting state
@@ -1264,6 +1299,8 @@ fn assert_instruction_count() {
             ("solana_bpf_rust_external_spend", 521),
             ("solana_bpf_rust_iter", 724),
             ("solana_bpf_rust_many_args", 237),
+            ("solana_bpf_rust_mem", 3143),
+            ("solana_bpf_rust_membuiltins", 4069),
             ("solana_bpf_rust_noop", 495),
             ("solana_bpf_rust_param_passing", 46),
             ("solana_bpf_rust_sanity", 917),

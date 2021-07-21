@@ -1,35 +1,37 @@
-use crate::{StoredExtendedRewards, StoredTransactionStatusMeta};
-use solana_account_decoder::parse_token::{real_number_string_trimmed, UiTokenAmount};
-use solana_sdk::{
-    hash::Hash,
-    instruction::CompiledInstruction,
-    instruction::InstructionError,
-    message::{Message, MessageHeader},
-    pubkey::Pubkey,
-    signature::Signature,
-    transaction::Transaction,
-    transaction::TransactionError,
-};
-use solana_transaction_status::{
-    ConfirmedBlock, InnerInstructions, Reward, RewardType, TransactionByAddrInfo,
-    TransactionStatusMeta, TransactionTokenBalance, TransactionWithStatusMeta,
-};
-use std::{
-    convert::{TryFrom, TryInto},
-    str::FromStr,
+use {
+    crate::{StoredExtendedRewards, StoredTransactionStatusMeta},
+    solana_account_decoder::parse_token::{real_number_string_trimmed, UiTokenAmount},
+    solana_sdk::{
+        hash::Hash,
+        instruction::CompiledInstruction,
+        instruction::InstructionError,
+        message::{Message, MessageHeader},
+        pubkey::Pubkey,
+        signature::Signature,
+        transaction::Transaction,
+        transaction::TransactionError,
+    },
+    solana_transaction_status::{
+        ConfirmedBlock, InnerInstructions, Reward, RewardType, TransactionByAddrInfo,
+        TransactionStatusMeta, TransactionTokenBalance, TransactionWithStatusMeta,
+    },
+    std::{
+        convert::{TryFrom, TryInto},
+        str::FromStr,
+    },
 };
 
 pub mod generated {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        concat!("/proto/solana.storage.confirmed_block.rs")
+        env!("OUT_DIR"),
+        "/solana.storage.confirmed_block.rs"
     ));
 }
 
 pub mod tx_by_addr {
     include!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        concat!("/proto/solana.storage.transaction_by_addr.rs")
+        env!("OUT_DIR"),
+        "/solana.storage.transaction_by_addr.rs"
     ));
 }
 
@@ -87,6 +89,7 @@ impl From<Reward> for generated::Reward {
                 Some(RewardType::Staking) => generated::RewardType::Staking,
                 Some(RewardType::Voting) => generated::RewardType::Voting,
             } as i32,
+            commission: reward.commission.map(|c| c.to_string()).unwrap_or_default(),
         }
     }
 }
@@ -105,6 +108,7 @@ impl From<generated::Reward> for Reward {
                 4 => Some(RewardType::Voting),
                 _ => None,
             },
+            commission: reward.commission.parse::<u8>().ok(),
         }
     }
 }
@@ -118,6 +122,7 @@ impl From<ConfirmedBlock> for generated::ConfirmedBlock {
             transactions,
             rewards,
             block_time,
+            block_height,
         } = confirmed_block;
 
         Self {
@@ -127,6 +132,7 @@ impl From<ConfirmedBlock> for generated::ConfirmedBlock {
             transactions: transactions.into_iter().map(|tx| tx.into()).collect(),
             rewards: rewards.into_iter().map(|r| r.into()).collect(),
             block_time: block_time.map(|timestamp| generated::UnixTimestamp { timestamp }),
+            block_height: block_height.map(|block_height| generated::BlockHeight { block_height }),
         }
     }
 }
@@ -143,6 +149,7 @@ impl TryFrom<generated::ConfirmedBlock> for ConfirmedBlock {
             transactions,
             rewards,
             block_time,
+            block_height,
         } = confirmed_block;
 
         Ok(Self {
@@ -155,6 +162,7 @@ impl TryFrom<generated::ConfirmedBlock> for ConfirmedBlock {
                 .collect::<std::result::Result<Vec<TransactionWithStatusMeta>, Self::Error>>()?,
             rewards: rewards.into_iter().map(|r| r.into()).collect(),
             block_time: block_time.map(|generated::UnixTimestamp { timestamp }| timestamp),
+            block_height: block_height.map(|generated::BlockHeight { block_height }| block_height),
         })
     }
 }
@@ -267,6 +275,7 @@ impl From<TransactionStatusMeta> for generated::TransactionStatusMeta {
             log_messages,
             pre_token_balances,
             post_token_balances,
+            rewards,
         } = value;
         let err = match status {
             Ok(()) => None,
@@ -290,6 +299,11 @@ impl From<TransactionStatusMeta> for generated::TransactionStatusMeta {
             .into_iter()
             .map(|balance| balance.into())
             .collect();
+        let rewards = rewards
+            .unwrap_or_default()
+            .into_iter()
+            .map(|reward| reward.into())
+            .collect();
 
         Self {
             err,
@@ -300,6 +314,7 @@ impl From<TransactionStatusMeta> for generated::TransactionStatusMeta {
             log_messages,
             pre_token_balances,
             post_token_balances,
+            rewards,
         }
     }
 }
@@ -324,6 +339,7 @@ impl TryFrom<generated::TransactionStatusMeta> for TransactionStatusMeta {
             log_messages,
             pre_token_balances,
             post_token_balances,
+            rewards,
         } = value;
         let status = match &err {
             None => Ok(()),
@@ -348,6 +364,7 @@ impl TryFrom<generated::TransactionStatusMeta> for TransactionStatusMeta {
                 .map(|balance| balance.into())
                 .collect(),
         );
+        let rewards = Some(rewards.into_iter().map(|reward| reward.into()).collect());
         Ok(Self {
             status,
             fee,
@@ -357,6 +374,7 @@ impl TryFrom<generated::TransactionStatusMeta> for TransactionStatusMeta {
             log_messages,
             pre_token_balances,
             post_token_balances,
+            rewards,
         })
     }
 }
@@ -586,7 +604,7 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                     tx_by_addr::TransactionErrorType::InstructionError
                 }
                 TransactionError::AccountBorrowOutstanding => {
-                    tx_by_addr::TransactionErrorType::AccountBorrowOutstanding
+                    tx_by_addr::TransactionErrorType::AccountBorrowOutstandingTx
                 }
             } as i32,
             instruction_error: match transaction_error {
@@ -739,6 +757,9 @@ impl From<TransactionError> for tx_by_addr::TransactionError {
                             InstructionError::UnsupportedSysvar => {
                                 tx_by_addr::InstructionErrorType::UnsupportedSysvar
                             }
+                            InstructionError::IllegalOwner => {
+                                tx_by_addr::InstructionErrorType::IllegalOwner
+                            }
                         } as i32,
                         custom: match instruction_error {
                             InstructionError::Custom(custom) => {
@@ -822,6 +843,7 @@ mod test {
             lamports: 123,
             post_balance: 321,
             reward_type: None,
+            commission: None,
         };
         let gen_reward: generated::Reward = reward.clone().into();
         assert_eq!(reward, gen_reward.into());

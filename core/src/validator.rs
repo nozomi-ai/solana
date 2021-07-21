@@ -2,7 +2,7 @@
 
 use crate::{
     broadcast_stage::BroadcastStageType,
-    cache_block_time_service::{CacheBlockTimeSender, CacheBlockTimeService},
+    cache_block_meta_service::{CacheBlockMetaSender, CacheBlockMetaService},
     cluster_info::{
         ClusterInfo, Node, DEFAULT_CONTACT_DEBUG_INTERVAL_MILLIS,
         DEFAULT_CONTACT_SAVE_INTERVAL_MILLIS,
@@ -255,8 +255,8 @@ struct TransactionHistoryServices {
     max_complete_transaction_status_slot: Arc<AtomicU64>,
     rewards_recorder_sender: Option<RewardsRecorderSender>,
     rewards_recorder_service: Option<RewardsRecorderService>,
-    cache_block_time_sender: Option<CacheBlockTimeSender>,
-    cache_block_time_service: Option<CacheBlockTimeService>,
+    cache_block_meta_sender: Option<CacheBlockMetaSender>,
+    cache_block_meta_service: Option<CacheBlockMetaService>,
 }
 
 pub struct Validator {
@@ -266,7 +266,7 @@ pub struct Validator {
     optimistically_confirmed_bank_tracker: Option<OptimisticallyConfirmedBankTracker>,
     transaction_status_service: Option<TransactionStatusService>,
     rewards_recorder_service: Option<RewardsRecorderService>,
-    cache_block_time_service: Option<CacheBlockTimeService>,
+    cache_block_meta_service: Option<CacheBlockMetaService>,
     sample_performance_service: Option<SamplePerformanceService>,
     gossip_service: GossipService,
     serve_repair_service: ServeRepairService,
@@ -392,8 +392,8 @@ impl Validator {
                 max_complete_transaction_status_slot,
                 rewards_recorder_sender,
                 rewards_recorder_service,
-                cache_block_time_sender,
-                cache_block_time_service,
+                cache_block_meta_sender,
+                cache_block_meta_service,
             },
             tower,
         ) = new_banks_from_ledger(
@@ -405,6 +405,7 @@ impl Validator {
             &exit,
             config.enforce_ulimit_nofile,
             &start_progress,
+            config.no_poh_speed_test,
         );
 
         *start_progress.write().unwrap() = ValidatorStartProgress::StartingServices;
@@ -635,10 +636,6 @@ impl Validator {
                 (None, None)
             };
 
-        if !config.no_poh_speed_test {
-            check_poh_speed(&genesis_config, None);
-        }
-
         let waited_for_supermajority = if let Ok(waited) = wait_for_supermajority(
             config,
             &bank,
@@ -719,7 +716,7 @@ impl Validator {
             config.enable_partition.clone(),
             transaction_status_sender.clone(),
             rewards_recorder_sender,
-            cache_block_time_sender,
+            cache_block_meta_sender,
             snapshot_config_and_pending_package,
             vote_tracker.clone(),
             retransmit_slots_sender,
@@ -782,7 +779,7 @@ impl Validator {
             optimistically_confirmed_bank_tracker,
             transaction_status_service,
             rewards_recorder_service,
-            cache_block_time_service,
+            cache_block_meta_service,
             sample_performance_service,
             snapshot_packager_service,
             completed_data_sets_service,
@@ -862,10 +859,10 @@ impl Validator {
                 .expect("rewards_recorder_service");
         }
 
-        if let Some(cache_block_time_service) = self.cache_block_time_service {
-            cache_block_time_service
+        if let Some(cache_block_meta_service) = self.cache_block_meta_service {
+            cache_block_meta_service
                 .join()
-                .expect("cache_block_time_service");
+                .expect("cache_block_meta_service");
         }
 
         if let Some(sample_performance_service) = self.sample_performance_service {
@@ -1032,6 +1029,7 @@ fn new_banks_from_ledger(
     exit: &Arc<AtomicBool>,
     enforce_ulimit_nofile: bool,
     start_progress: &Arc<RwLock<ValidatorStartProgress>>,
+    no_poh_speed_test: bool,
 ) -> (
     GenesisConfig,
     BankForks,
@@ -1063,6 +1061,10 @@ fn new_banks_from_ledger(
             error!("Delete the ledger directory to continue: {:?}", ledger_path);
             abort();
         }
+    }
+
+    if !no_poh_speed_test {
+        check_poh_speed(&genesis_config, None);
     }
 
     let BlockstoreSignals {
@@ -1139,7 +1141,7 @@ fn new_banks_from_ledger(
             .transaction_status_sender
             .as_ref(),
         transaction_history_services
-            .cache_block_time_sender
+            .cache_block_meta_sender
             .as_ref(),
     )
     .unwrap_or_else(|err| {
@@ -1325,10 +1327,10 @@ fn initialize_rpc_transaction_history_services(
         exit,
     ));
 
-    let (cache_block_time_sender, cache_block_time_receiver) = unbounded();
-    let cache_block_time_sender = Some(cache_block_time_sender);
-    let cache_block_time_service = Some(CacheBlockTimeService::new(
-        cache_block_time_receiver,
+    let (cache_block_meta_sender, cache_block_meta_receiver) = unbounded();
+    let cache_block_meta_sender = Some(cache_block_meta_sender);
+    let cache_block_meta_service = Some(CacheBlockMetaService::new(
+        cache_block_meta_receiver,
         blockstore,
         exit,
     ));
@@ -1338,8 +1340,8 @@ fn initialize_rpc_transaction_history_services(
         max_complete_transaction_status_slot,
         rewards_recorder_sender,
         rewards_recorder_service,
-        cache_block_time_sender,
-        cache_block_time_service,
+        cache_block_meta_sender,
+        cache_block_meta_service,
     }
 }
 
@@ -1428,17 +1430,22 @@ fn report_target_features() {
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     {
-        // Validator binaries built on a machine with AVX support will generate invalid opcodes
-        // when run on machines without AVX causing a non-obvious process abort.  Instead detect
-        // the mismatch and error cleanly.
-        if is_x86_feature_detected!("avx") {
-            info!("AVX detected");
-        } else {
-            error!(
-                "Your machine does not have AVX support, please rebuild from source on your machine"
-            );
-            abort();
-        }
+        unsafe { check_avx() };
+    }
+}
+
+// Validator binaries built on a machine with AVX support will generate invalid opcodes
+// when run on machines without AVX causing a non-obvious process abort.  Instead detect
+// the mismatch and error cleanly.
+#[target_feature(enable = "avx")]
+unsafe fn check_avx() {
+    if is_x86_feature_detected!("avx") {
+        info!("AVX detected");
+    } else {
+        error!(
+            "Your machine does not have AVX support, please rebuild from source on your machine"
+        );
+        abort();
     }
 }
 
@@ -1617,9 +1624,11 @@ mod tests {
             }
             drop(blockstore);
 
+            // this purges and compacts all slots greater than or equal to 5
             backup_and_clear_blockstore(&blockstore_path, 5, 2);
 
             let blockstore = Blockstore::open(&blockstore_path).unwrap();
+            // assert that slots less than 5 aren't affected
             assert!(blockstore.meta(4).unwrap().unwrap().next_slots.is_empty());
             for i in 5..10 {
                 assert!(blockstore

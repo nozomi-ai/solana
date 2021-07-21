@@ -1021,6 +1021,8 @@ pub fn main() {
         PubSubConfig::default().max_in_buffer_capacity.to_string();
     let default_rpc_pubsub_max_out_buffer_capacity =
         PubSubConfig::default().max_out_buffer_capacity.to_string();
+    let default_rpc_pubsub_max_active_subscriptions =
+        PubSubConfig::default().max_active_subscriptions.to_string();
     let default_rpc_send_transaction_retry_ms = ValidatorConfig::default()
         .send_transaction_retry_ms
         .to_string();
@@ -1485,7 +1487,7 @@ pub fn main() {
             Arg::with_name("no_rocksdb_compaction")
                 .long("no-rocksdb-compaction")
                 .takes_value(false)
-                .help("Disable manual compaction of the ledger database. May increase storage requirements.")
+                .help("Disable manual compaction of the ledger database (this is ignored).")
         )
         .arg(
             Arg::with_name("rocksdb_compaction_interval")
@@ -1588,6 +1590,16 @@ pub fn main() {
                 .validator(is_parsable::<usize>)
                 .default_value(&default_rpc_pubsub_max_out_buffer_capacity)
                 .help("The maximum size in bytes to which the outgoing websocket buffer can grow."),
+        )
+        .arg(
+            Arg::with_name("rpc_pubsub_max_active_subscriptions")
+                .long("rpc-pubsub-max-active-subscriptions")
+                .takes_value(true)
+                .value_name("NUMBER")
+                .validator(is_parsable::<usize>)
+                .default_value(&default_rpc_pubsub_max_active_subscriptions)
+                .help("The maximum number of active subscriptions that RPC PubSub will accept \
+                       across all connections."),
         )
         .arg(
             Arg::with_name("rpc_send_transaction_retry_ms")
@@ -2001,7 +2013,7 @@ pub fn main() {
 
     let private_rpc = matches.is_present("private_rpc");
     let no_port_check = matches.is_present("no_port_check");
-    let no_rocksdb_compaction = matches.is_present("no_rocksdb_compaction");
+    let no_rocksdb_compaction = true;
     let rocksdb_compaction_interval = value_t!(matches, "rocksdb_compaction_interval", u64).ok();
     let rocksdb_max_compaction_jitter =
         value_t!(matches, "rocksdb_max_compaction_jitter", u64).ok();
@@ -2123,6 +2135,11 @@ pub fn main() {
             max_out_buffer_capacity: value_t_or_exit!(
                 matches,
                 "rpc_pubsub_max_out_buffer_capacity",
+                usize
+            ),
+            max_active_subscriptions: value_t_or_exit!(
+                matches,
+                "rpc_pubsub_max_active_subscriptions",
                 usize
             ),
         },

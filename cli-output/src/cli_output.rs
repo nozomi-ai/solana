@@ -233,6 +233,10 @@ pub struct CliEpochInfo {
     pub epoch_info: EpochInfo,
     #[serde(skip)]
     pub average_slot_time_ms: u64,
+    #[serde(skip)]
+    pub start_block_time: Option<UnixTimestamp>,
+    #[serde(skip)]
+    pub current_block_time: Option<UnixTimestamp>,
 }
 
 impl QuietDisplay for CliEpochInfo {}
@@ -277,21 +281,41 @@ impl fmt::Display for CliEpochInfo {
                 remaining_slots_in_epoch
             ),
         )?;
+        let (time_elapsed, annotation) = if let (Some(start_block_time), Some(current_block_time)) =
+            (self.start_block_time, self.current_block_time)
+        {
+            (
+                Duration::from_secs((current_block_time - start_block_time) as u64),
+                None,
+            )
+        } else {
+            (
+                slot_to_duration(self.epoch_info.slot_index, self.average_slot_time_ms),
+                Some("* estimated based on current slot durations"),
+            )
+        };
+        let time_remaining = slot_to_duration(remaining_slots_in_epoch, self.average_slot_time_ms);
         writeln_name_value(
             f,
             "Epoch Completed Time:",
             &format!(
-                "{}/{} ({} remaining)",
-                slot_to_human_time(self.epoch_info.slot_index, self.average_slot_time_ms),
-                slot_to_human_time(self.epoch_info.slots_in_epoch, self.average_slot_time_ms),
-                slot_to_human_time(remaining_slots_in_epoch, self.average_slot_time_ms)
+                "{}{}/{} ({} remaining)",
+                humantime::format_duration(time_elapsed).to_string(),
+                if annotation.is_some() { "*" } else { "" },
+                humantime::format_duration(time_elapsed + time_remaining).to_string(),
+                humantime::format_duration(time_remaining).to_string(),
             ),
-        )
+        )?;
+        if let Some(annotation) = annotation {
+            writeln!(f)?;
+            writeln!(f, "{}", annotation)?;
+        }
+        Ok(())
     }
 }
 
-fn slot_to_human_time(slot: Slot, slot_time_ms: u64) -> String {
-    humantime::format_duration(Duration::from_secs((slot * slot_time_ms) / 1000)).to_string()
+fn slot_to_duration(slot: Slot, slot_time_ms: u64) -> Duration {
+    Duration::from_secs((slot * slot_time_ms) / 1000)
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -323,6 +347,8 @@ pub struct CliValidators {
     pub total_current_stake: u64,
     pub total_delinquent_stake: u64,
     pub validators: Vec<CliValidator>,
+    pub average_skip_rate: f64,
+    pub average_stake_weighted_skip_rate: f64,
     #[serde(skip_serializing)]
     pub validators_sort_order: CliValidatorsSortOrder,
     #[serde(skip_serializing)]
@@ -485,6 +511,18 @@ impl fmt::Display for CliValidators {
         if self.validators.len() > 100 {
             writeln!(f, "{}", header)?;
         }
+
+        writeln!(f)?;
+        writeln_name_value(
+            f,
+            "Average Stake-Weighted Skip Rate:",
+            &format!("{:.2}%", self.average_stake_weighted_skip_rate,),
+        )?;
+        writeln_name_value(
+            f,
+            "Average Unweighted Skip Rate:    ",
+            &format!("{:.2}%", self.average_skip_rate),
+        )?;
 
         writeln!(f)?;
         writeln_name_value(
@@ -733,6 +771,7 @@ pub struct CliEpochReward {
     pub post_balance: u64, // lamports
     pub percent_change: f64,
     pub apr: Option<f64>,
+    pub commission: Option<u8>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -777,23 +816,27 @@ impl fmt::Display for CliKeyedEpochRewards {
         writeln!(f, "Epoch Rewards:")?;
         writeln!(
             f,
-            "  {:<44}  {:<18}  {:<18}  {:>14}  {:>14}",
-            "Address", "Amount", "New Balance", "Percent Change", "APR"
+            "  {:<44}  {:<18}  {:<18}  {:>14}  {:>14}  {:>10}",
+            "Address", "Amount", "New Balance", "Percent Change", "APR", "Commission"
         )?;
         for keyed_reward in &self.rewards {
             match &keyed_reward.reward {
                 Some(reward) => {
                     writeln!(
                         f,
-                        "  {:<44}  ◎{:<17.9}  ◎{:<17.9}  {:>13.2}%  {}",
+                        "  {:<44}  ◎{:<17.9}  ◎{:<17.9}  {:>13.9}%  {:>14}  {:>10}",
                         keyed_reward.address,
                         lamports_to_sol(reward.amount),
                         lamports_to_sol(reward.post_balance),
                         reward.percent_change,
                         reward
                             .apr
-                            .map(|apr| format!("{:>13.2}%", apr))
+                            .map(|apr| format!("{:.2}%", apr))
                             .unwrap_or_default(),
+                        reward
+                            .commission
+                            .map(|commission| format!("{}%", commission))
+                            .unwrap_or_else(|| "-".to_string())
                     )?;
                 }
                 None => {
@@ -910,13 +953,13 @@ fn show_epoch_rewards(
         writeln!(f, "Epoch Rewards:")?;
         writeln!(
             f,
-            "  {:<6}  {:<11}  {:<18}  {:<18}  {:>14}  {:>14}",
-            "Epoch", "Reward Slot", "Amount", "New Balance", "Percent Change", "APR"
+            "  {:<6}  {:<11}  {:<18}  {:<18}  {:>14}  {:>14}  {:>10}",
+            "Epoch", "Reward Slot", "Amount", "New Balance", "Percent Change", "APR", "Commission"
         )?;
         for reward in epoch_rewards {
             writeln!(
                 f,
-                "  {:<6}  {:<11}  ◎{:<17.9}  ◎{:<17.9}  {:>13.2}%  {}",
+                "  {:<6}  {:<11}  ◎{:<17.9}  ◎{:<17.9}  {:>13.9}%  {:>14}  {:>10}",
                 reward.epoch,
                 reward.effective_slot,
                 lamports_to_sol(reward.amount),
@@ -924,8 +967,12 @@ fn show_epoch_rewards(
                 reward.percent_change,
                 reward
                     .apr
-                    .map(|apr| format!("{:>13.2}%", apr))
+                    .map(|apr| format!("{:.2}%", apr))
                     .unwrap_or_default(),
+                reward
+                    .commission
+                    .map(|commission| format!("{}%", commission))
+                    .unwrap_or_else(|| "-".to_string())
             )?;
         }
     }
@@ -1669,6 +1716,7 @@ pub struct CliFeesInner {
     pub blockhash: String,
     pub lamports_per_signature: u64,
     pub last_valid_slot: Option<Slot>,
+    pub last_valid_block_height: Option<Slot>,
 }
 
 impl QuietDisplay for CliFeesInner {}
@@ -1682,11 +1730,11 @@ impl fmt::Display for CliFeesInner {
             "Lamports per signature:",
             &self.lamports_per_signature.to_string(),
         )?;
-        let last_valid_slot = self
-            .last_valid_slot
+        let last_valid_block_height = self
+            .last_valid_block_height
             .map(|s| s.to_string())
             .unwrap_or_default();
-        writeln_name_value(f, "Last valid slot:", &last_valid_slot)
+        writeln_name_value(f, "Last valid block height:", &last_valid_block_height)
     }
 }
 
@@ -1715,6 +1763,7 @@ impl CliFees {
         blockhash: Hash,
         lamports_per_signature: u64,
         last_valid_slot: Option<Slot>,
+        last_valid_block_height: Option<Slot>,
     ) -> Self {
         Self {
             inner: Some(CliFeesInner {
@@ -1722,6 +1771,7 @@ impl CliFees {
                 blockhash: blockhash.to_string(),
                 lamports_per_signature,
                 last_valid_slot,
+                last_valid_block_height,
             }),
         }
     }
@@ -2126,6 +2176,9 @@ impl fmt::Display for CliBlock {
         if let Some(block_time) = self.encoded_confirmed_block.block_time {
             writeln!(f, "Block Time: {:?}", Local.timestamp(block_time, 0))?;
         }
+        if let Some(block_height) = self.encoded_confirmed_block.block_height {
+            writeln!(f, "Block Height: {:?}", block_height)?;
+        }
         if !self.encoded_confirmed_block.rewards.is_empty() {
             let mut rewards = self.encoded_confirmed_block.rewards.clone();
             rewards.sort_by(|a, b| a.pubkey.cmp(&b.pubkey));
@@ -2133,8 +2186,8 @@ impl fmt::Display for CliBlock {
             writeln!(f, "Rewards:")?;
             writeln!(
                 f,
-                "  {:<44}  {:^15}  {:<15}  {:<20}  {:>14}",
-                "Address", "Type", "Amount", "New Balance", "Percent Change"
+                "  {:<44}  {:^15}  {:<15}  {:<20}  {:>14}  {:>10}",
+                "Address", "Type", "Amount", "New Balance", "Percent Change", "Commission"
             )?;
             for reward in rewards {
                 let sign = if reward.lamports < 0 { "-" } else { "" };
@@ -2142,7 +2195,7 @@ impl fmt::Display for CliBlock {
                 total_rewards += reward.lamports;
                 writeln!(
                     f,
-                    "  {:<44}  {:^15}  {:>15}  {}",
+                    "  {:<44}  {:^15}  {:>15}  {}  {}",
                     reward.pubkey,
                     if let Some(reward_type) = reward.reward_type {
                         format!("{}", reward_type)
@@ -2164,7 +2217,11 @@ impl fmt::Display for CliBlock {
                                 / (reward.post_balance as f64 - reward.lamports as f64))
                                 * 100.0
                         )
-                    }
+                    },
+                    reward
+                        .commission
+                        .map(|commission| format!("{:>9}%", commission))
+                        .unwrap_or_else(|| "    -".to_string())
                 )?;
             }
 
@@ -2404,6 +2461,10 @@ mod tests {
 
             fn try_sign_message(&self, _message: &[u8]) -> Result<Signature, SignerError> {
                 Ok(Signature::new(&[1u8; 64]))
+            }
+
+            fn is_interactive(&self) -> bool {
+                false
             }
         }
 

@@ -1,22 +1,24 @@
 #![allow(clippy::integer_arithmetic)]
-use log::*;
-use serde::{Deserialize, Serialize};
-use solana_sdk::{
-    clock::{Slot, UnixTimestamp},
-    pubkey::Pubkey,
-    signature::Signature,
-    sysvar::is_sysvar_id,
-    transaction::{Transaction, TransactionError},
+use {
+    log::*,
+    serde::{Deserialize, Serialize},
+    solana_sdk::{
+        clock::{Slot, UnixTimestamp},
+        deserialize_utils::default_on_eof,
+        pubkey::Pubkey,
+        signature::Signature,
+        sysvar::is_sysvar_id,
+        transaction::{Transaction, TransactionError},
+    },
+    solana_storage_proto::convert::{generated, tx_by_addr},
+    solana_transaction_status::{
+        ConfirmedBlock, ConfirmedTransaction, ConfirmedTransactionStatusWithSignature, Reward,
+        TransactionByAddrInfo, TransactionConfirmationStatus, TransactionStatus,
+        TransactionStatusMeta, TransactionWithStatusMeta,
+    },
+    std::{collections::HashMap, convert::TryInto},
+    thiserror::Error,
 };
-use solana_storage_proto::convert::generated;
-use solana_storage_proto::convert::tx_by_addr;
-use solana_transaction_status::{
-    ConfirmedBlock, ConfirmedTransaction, ConfirmedTransactionStatusWithSignature, Reward,
-    TransactionByAddrInfo, TransactionConfirmationStatus, TransactionStatus, TransactionStatusMeta,
-    TransactionWithStatusMeta,
-};
-use std::{collections::HashMap, convert::TryInto};
-use thiserror::Error;
 
 #[macro_use]
 extern crate serde_derive;
@@ -81,6 +83,9 @@ fn key_to_slot(key: &str) -> Option<Slot> {
 // StoredConfirmedBlock holds the same contents as ConfirmedBlock, but is slightly compressed and avoids
 // some serde JSON directives that cause issues with bincode
 //
+// Note: in order to continue to support old bincode-serialized bigtable entries, if new fields are
+// added to ConfirmedBlock, they must either be excluded or set to `default_on_eof` here
+//
 #[derive(Serialize, Deserialize)]
 struct StoredConfirmedBlock {
     previous_blockhash: String,
@@ -89,6 +94,8 @@ struct StoredConfirmedBlock {
     transactions: Vec<StoredConfirmedBlockTransaction>,
     rewards: StoredConfirmedBlockRewards,
     block_time: Option<UnixTimestamp>,
+    #[serde(deserialize_with = "default_on_eof")]
+    block_height: Option<u64>,
 }
 
 impl From<ConfirmedBlock> for StoredConfirmedBlock {
@@ -100,6 +107,7 @@ impl From<ConfirmedBlock> for StoredConfirmedBlock {
             transactions,
             rewards,
             block_time,
+            block_height,
         } = confirmed_block;
 
         Self {
@@ -109,6 +117,7 @@ impl From<ConfirmedBlock> for StoredConfirmedBlock {
             transactions: transactions.into_iter().map(|tx| tx.into()).collect(),
             rewards: rewards.into_iter().map(|reward| reward.into()).collect(),
             block_time,
+            block_height,
         }
     }
 }
@@ -122,6 +131,7 @@ impl From<StoredConfirmedBlock> for ConfirmedBlock {
             transactions,
             rewards,
             block_time,
+            block_height,
         } = confirmed_block;
 
         Self {
@@ -131,6 +141,7 @@ impl From<StoredConfirmedBlock> for ConfirmedBlock {
             transactions: transactions.into_iter().map(|tx| tx.into()).collect(),
             rewards: rewards.into_iter().map(|reward| reward.into()).collect(),
             block_time,
+            block_height,
         }
     }
 }
@@ -188,6 +199,7 @@ impl From<StoredConfirmedBlockTransactionStatusMeta> for TransactionStatusMeta {
             log_messages: None,
             pre_token_balances: None,
             post_token_balances: None,
+            rewards: None,
         }
     }
 }
@@ -226,6 +238,7 @@ impl From<StoredConfirmedBlockReward> for Reward {
             lamports,
             post_balance: 0,
             reward_type: None,
+            commission: None,
         }
     }
 }

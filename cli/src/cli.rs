@@ -25,7 +25,7 @@ use solana_cli_output::{
 };
 use solana_client::{
     blockhash_query::BlockhashQuery,
-    client_error::{ClientError, ClientErrorKind, Result as ClientResult},
+    client_error::{ClientError, Result as ClientResult},
     nonce_utils,
     rpc_client::RpcClient,
     rpc_config::{
@@ -61,6 +61,7 @@ use std::{
 use thiserror::Error;
 
 pub const DEFAULT_RPC_TIMEOUT_SECONDS: &str = "30";
+pub const DEFAULT_CONFIRM_TX_TIMEOUT_SECONDS: &str = "5";
 
 #[derive(Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
@@ -134,6 +135,8 @@ pub enum CliCommand {
         sort_order: CliValidatorsSortOrder,
         reverse_sort: bool,
         number_validators: bool,
+        keep_unstaked_delinquents: bool,
+        delinquent_slot_distance: Option<Slot>,
     },
     Supply {
         print_accounts: bool,
@@ -450,6 +453,7 @@ pub struct CliConfig<'a> {
     pub output_format: OutputFormat,
     pub commitment: CommitmentConfig,
     pub send_transaction_config: RpcSendTransactionConfig,
+    pub confirm_transaction_initial_timeout: Duration,
     pub address_labels: HashMap<String, String>,
 }
 
@@ -594,6 +598,9 @@ impl Default for CliConfig<'_> {
             output_format: OutputFormat::Display,
             commitment: CommitmentConfig::confirmed(),
             send_transaction_config: RpcSendTransactionConfig::default(),
+            confirm_transaction_initial_timeout: Duration::from_secs(
+                u64::from_str(DEFAULT_CONFIRM_TX_TIMEOUT_SECONDS).unwrap(),
+            ),
             address_labels: HashMap::new(),
         }
     }
@@ -1122,7 +1129,7 @@ fn process_show_account(
             pubkey: account_pubkey.to_string(),
             account: UiAccount::encode(
                 account_pubkey,
-                account,
+                &account,
                 UiAccountEncoding::Base64,
                 None,
                 None,
@@ -1285,10 +1292,11 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
     }
 
     let rpc_client = if config.rpc_client.is_none() {
-        Arc::new(RpcClient::new_with_timeout_and_commitment(
+        Arc::new(RpcClient::new_with_timeouts_and_commitment(
             config.json_rpc_url.to_string(),
             config.rpc_timeout,
             config.commitment,
+            config.confirm_transaction_initial_timeout,
         ))
     } else {
         // Primarily for testing
@@ -1388,6 +1396,8 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             sort_order,
             reverse_sort,
             number_validators,
+            keep_unstaked_delinquents,
+            delinquent_slot_distance,
         } => process_show_validators(
             &rpc_client,
             config,
@@ -1395,6 +1405,8 @@ pub fn process_command(config: &CliConfig) -> ProcessResult {
             *sort_order,
             *reverse_sort,
             *number_validators,
+            *keep_unstaked_delinquents,
+            *delinquent_slot_distance,
         ),
         CliCommand::Supply { print_accounts } => {
             process_supply(&rpc_client, config, *print_accounts)
@@ -1944,6 +1956,17 @@ pub fn request_and_confirm_airdrop(
     Ok(signature)
 }
 
+fn common_error_adapter<E>(ix_error: &InstructionError) -> Option<E>
+where
+    E: 'static + std::error::Error + DecodeError<E> + FromPrimitive,
+{
+    if let InstructionError::Custom(code) = ix_error {
+        E::decode_custom_error_to_enum(*code)
+    } else {
+        None
+    }
+}
+
 pub fn log_instruction_custom_error<E>(
     result: ClientResult<Signature>,
     config: &CliConfig,
@@ -1951,14 +1974,23 @@ pub fn log_instruction_custom_error<E>(
 where
     E: 'static + std::error::Error + DecodeError<E> + FromPrimitive,
 {
+    log_instruction_custom_error_ex::<E, _>(result, config, common_error_adapter)
+}
+
+pub fn log_instruction_custom_error_ex<E, F>(
+    result: ClientResult<Signature>,
+    config: &CliConfig,
+    error_adapter: F,
+) -> ProcessResult
+where
+    E: 'static + std::error::Error + DecodeError<E> + FromPrimitive,
+    F: Fn(&InstructionError) -> Option<E>,
+{
     match result {
         Err(err) => {
-            if let ClientErrorKind::TransactionError(TransactionError::InstructionError(
-                _,
-                InstructionError::Custom(code),
-            )) = err.kind()
-            {
-                if let Some(specific_error) = E::decode_custom_error_to_enum(*code) {
+            let maybe_tx_err = err.get_transaction_error();
+            if let Some(TransactionError::InstructionError(_, ix_error)) = maybe_tx_err {
+                if let Some(specific_error) = error_adapter(&ix_error) {
                     return Err(specific_error.into());
                 }
             }
@@ -1996,22 +2028,7 @@ pub fn app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> App<'ab, '
         .stake_subcommands()
         .subcommand(
             SubCommand::with_name("airdrop")
-                .about("Request lamports")
-                .arg(
-                    Arg::with_name("faucet_host")
-                        .long("faucet-host")
-                        .value_name("URL")
-                        .takes_value(true)
-                        .help("Faucet host to use [default: the --url host]"),
-                )
-                .arg(
-                    Arg::with_name("faucet_port")
-                        .long("faucet-port")
-                        .value_name("PORT_NUMBER")
-                        .takes_value(true)
-                        .default_value(solana_faucet::faucet::FAUCET_PORT_STR)
-                        .help("Faucet port to use"),
-                )
+                .about("Request SOL from a faucet")
                 .arg(
                     Arg::with_name("amount")
                         .index(1)
@@ -2223,7 +2240,7 @@ pub fn app<'ab, 'v>(name: &str, about: &'ab str, version: &'v str) -> App<'ab, '
                 )
                 .offline_args()
                 .nonce_args(false)
-		.arg(memo_arg())
+                .arg(memo_arg())
                 .arg(fee_payer_arg()),
         )
         .subcommand(
@@ -2296,7 +2313,7 @@ mod tests {
         let default_keypair_file = make_tmp_path("keypair_file");
         write_keypair_file(&default_keypair, &default_keypair_file).unwrap();
 
-        let default_signer = DefaultSigner::new(default_keypair_file);
+        let default_signer = DefaultSigner::new("keypair", &default_keypair_file);
 
         let signer_info = default_signer
             .generate_unique_signers(vec![], &matches, &mut None)
@@ -2374,7 +2391,7 @@ mod tests {
         let keypair_file = make_tmp_path("keypair_file");
         write_keypair_file(&default_keypair, &keypair_file).unwrap();
         let keypair = read_keypair_file(&keypair_file).unwrap();
-        let default_signer = DefaultSigner::new(keypair_file.clone());
+        let default_signer = DefaultSigner::new("", &keypair_file);
         // Test Airdrop Subcommand
         let test_airdrop =
             test_commands
@@ -2902,7 +2919,7 @@ mod tests {
         let default_keypair = Keypair::new();
         let default_keypair_file = make_tmp_path("keypair_file");
         write_keypair_file(&default_keypair, &default_keypair_file).unwrap();
-        let default_signer = DefaultSigner::new(default_keypair_file.clone());
+        let default_signer = DefaultSigner::new("", &default_keypair_file);
 
         //Test Transfer Subcommand, SOL
         let from_keypair = keypair_from_seed(&[0u8; 32]).unwrap();

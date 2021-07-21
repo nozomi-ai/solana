@@ -14,7 +14,7 @@ use solana_clap_utils::{
     input_parsers::*,
     input_validators::*,
     keypair::{DefaultSigner, SignerIndex},
-    memo::MEMO_ARG,
+    memo::{memo_arg, MEMO_ARG},
     nonce::*,
     offline::*,
     ArgConstant,
@@ -178,6 +178,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("delegate-stake")
@@ -207,6 +208,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("stake-authorize")
@@ -238,6 +240,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .nonce_args(false)
                 .arg(fee_payer_arg())
                 .arg(custodian_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("deactivate-stake")
@@ -261,6 +264,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("split-stake")
@@ -302,6 +306,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("merge-stake")
@@ -325,6 +330,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("withdraw-stake")
@@ -365,6 +371,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .nonce_args(false)
                 .arg(fee_payer_arg())
                 .arg(custodian_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("stake-set-lockup")
@@ -412,6 +419,7 @@ impl StakeSubCommands for App<'_, '_> {
                 .offline_args()
                 .nonce_args(false)
                 .arg(fee_payer_arg())
+                .arg(memo_arg())
         )
         .subcommand(
             SubCommand::with_name("stake-account")
@@ -1814,6 +1822,7 @@ pub fn make_cli_reward(
             post_balance: reward.post_balance,
             percent_change: rate_change * 100.0,
             apr: Some(apr * 100.0),
+            commission: reward.commission,
         })
     } else {
         None
@@ -2104,7 +2113,7 @@ mod tests {
         let default_keypair = Keypair::new();
         let (default_keypair_file, mut tmp_file) = make_tmp_file();
         write_keypair(&default_keypair, tmp_file.as_file_mut()).unwrap();
-        let default_signer = DefaultSigner::new(default_keypair_file.clone());
+        let default_signer = DefaultSigner::new("", &default_keypair_file);
         let (keypair_file, mut tmp_file) = make_tmp_file();
         let stake_account_keypair = Keypair::new();
         write_keypair(&stake_account_keypair, tmp_file.as_file_mut()).unwrap();

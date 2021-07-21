@@ -10,10 +10,6 @@ pub mod instructions_sysvar_enabled {
     solana_sdk::declare_id!("EnvhHCLvg55P7PDtbvR1NwuTuAeodqpusV3MR5QEK8gs");
 }
 
-pub mod secp256k1_program_enabled {
-    solana_sdk::declare_id!("E3PHP7w8kB7np3CTQ1qQ2tW3KCtjRSXBQgW9vM2mWv2Y");
-}
-
 pub mod consistent_recent_blockhashes_sysvar {
     solana_sdk::declare_id!("3h1BQWPDS5veRsq6mDBWruEpgPxRJkfwGexg5iiQ9mYg");
 }
@@ -142,11 +138,42 @@ pub mod stake_program_v4 {
     solana_sdk::declare_id!("Dc7djyhP9aLfdq2zktpvskeAjpG56msCU1yexpxXiWZb");
 }
 
+pub mod system_transfer_zero_check {
+    solana_sdk::declare_id!("BrTR9hzw4WBGFP65AJMbpAo64DcA3U6jdPSga9fMV5cS");
+}
+
+pub mod memory_ops_syscalls {
+    solana_sdk::declare_id!("ENQi37wsVhTvFz2gUiZAAbqFEWGN2jwFsqdEDTE8A4MU");
+}
+
+pub mod dedupe_config_program_signers {
+    solana_sdk::declare_id!("8kEuAshXLsgkUEdcFVLqrjCGGHVWFW99ZZpxvAzzMtBp");
+}
+
+pub mod vote_stake_checked_instructions {
+    solana_sdk::declare_id!("BcWknVcgvonN8sL4HE4XFuEVgfcee5MwxWPAgP6ZV89X");
+}
+
+pub mod updated_verify_policy {
+    solana_sdk::declare_id!("k15tVxtkgsmo7dy6iJ56N5hBCxuQAtqRgYwoTDuwbia");
+}
+
+pub mod libsecp256k1_0_5_upgrade_enabled {
+    solana_sdk::declare_id!("DhsYfRjxfnh2g7HKJYSzT79r74Afa1wbHkAgHndrA1oy");
+}
+
+pub mod merge_nonce_error_into_system_error {
+    solana_sdk::declare_id!("21AWDosvp3pBamFW91KB35pNoaoZVTM7ess8nr2nt53B");
+}
+
+pub mod spl_token_v2_set_authority_fix {
+    solana_sdk::declare_id!("FToKNBYyiF4ky9s8WsmLBXHCht17Ek7RXaLZGHzzQhJ1");
+}
+
 lazy_static! {
     /// Map of feature identifiers to user-visible description
     pub static ref FEATURE_NAMES: HashMap<Pubkey, &'static str> = [
         (instructions_sysvar_enabled::id(), "instructions sysvar"),
-        (secp256k1_program_enabled::id(), "secp256k1 program"),
         (consistent_recent_blockhashes_sysvar::id(), "consistent recentblockhashes sysvar"),
         (deprecate_rewards_sysvar::id(), "deprecate unused rewards sysvar"),
         (pico_inflation::id(), "pico inflation"),
@@ -165,8 +192,6 @@ lazy_static! {
         (warp_timestamp_again::id(), "warp timestamp again, adjust bounding to 25% fast 80% slow #15204"),
         (check_init_vote_data::id(), "check initialized Vote data"),
         (check_program_owner::id(), "limit programs to operating on accounts owned by itself"),
-        (cpi_share_ro_and_exec_accounts::id(), "share RO and Executable accounts during cross-program invocations"),
-        (skip_ro_deserialization::id(), "skip deserialization of read-only accounts"),
         (require_stake_for_gossip::id(), "require stakes for propagating crds values through gossip #15561"),
         (cpi_data_cost::id(), "charge the compute budget for data passed via CPI"),
         (upgradeable_close_instruction::id(), "close upgradeable buffer accounts"),
@@ -178,6 +203,14 @@ lazy_static! {
         (set_upgrade_authority_via_cpi_enabled::id(), "set upgrade authority instruction via cpi calls for upgradable programs"),
         (keccak256_syscall_enabled::id(), "keccak256 syscall"),
         (stake_program_v4::id(), "solana_stake_program v4"),
+        (system_transfer_zero_check::id(), "perform all checks for transfers of 0 lamports"),
+        (memory_ops_syscalls::id(), "add syscalls for memory operations"),
+        (dedupe_config_program_signers::id(), "dedupe config program signers"),
+        (vote_stake_checked_instructions::id(), "vote/state program checked instructions #18345"),
+        (updated_verify_policy::id(), "Update verify policy"),
+        (libsecp256k1_0_5_upgrade_enabled::id(), "upgrade libsecp256k1 to v0.5.0"),
+        (merge_nonce_error_into_system_error::id(), "merge NonceError into SystemError"),
+        (spl_token_v2_set_authority_fix::id(), "spl-token set_authority fix"),
         /*************** ADD NEW FEATURES HERE ***************/
     ]
     .iter()

@@ -30,6 +30,7 @@ pub mod native_token;
 pub mod nonce;
 pub mod program;
 pub mod program_error;
+pub mod program_memory;
 pub mod program_option;
 pub mod program_pack;
 pub mod program_stubs;
@@ -46,6 +47,27 @@ pub mod system_instruction;
 pub mod system_program;
 pub mod sysvar;
 
+pub mod config {
+    pub mod program {
+        crate::declare_id!("Config1111111111111111111111111111111111111");
+    }
+}
+
+pub mod vote {
+    pub mod program {
+        crate::declare_id!("Vote111111111111111111111111111111111111111");
+    }
+}
+
+pub mod stake {
+    pub mod config {
+        crate::declare_id!("StakeConfig11111111111111111111111111111111");
+    }
+
+    pub mod program {
+        crate::declare_id!("Stake11111111111111111111111111111111111111");
+    }
+}
 /// Convenience macro to declare a static public key and functions to interact with it
 ///
 /// Input: a single literal base58 string representation of a program's id

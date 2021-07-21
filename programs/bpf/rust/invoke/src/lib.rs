@@ -29,18 +29,55 @@ const TEST_INSTRUCTION_META_TOO_LARGE: u8 = 10;
 const TEST_RETURN_ERROR: u8 = 11;
 const TEST_PRIVILEGE_DEESCALATION_ESCALATION_SIGNER: u8 = 12;
 const TEST_PRIVILEGE_DEESCALATION_ESCALATION_WRITABLE: u8 = 13;
+const TEST_WRITABLE_DEESCALATION_WRITABLE: u8 = 14;
+const TEST_NESTED_INVOKE_TOO_DEEP: u8 = 15;
+const TEST_EXECUTABLE_LAMPORTS: u8 = 16;
+const ADD_LAMPORTS: u8 = 17;
 
-// const MINT_INDEX: usize = 0;
+// const MINT_INDEX: usize = 0; // unused placeholder
 const ARGUMENT_INDEX: usize = 1;
 const INVOKED_PROGRAM_INDEX: usize = 2;
 const INVOKED_ARGUMENT_INDEX: usize = 3;
 const INVOKED_PROGRAM_DUP_INDEX: usize = 4;
-// const ARGUMENT_DUP_INDEX: usize = 5;
+// const ARGUMENT_DUP_INDEX: usize = 5; unused placeholder
 const DERIVED_KEY1_INDEX: usize = 6;
 const DERIVED_KEY2_INDEX: usize = 7;
 const DERIVED_KEY3_INDEX: usize = 8;
 const SYSTEM_PROGRAM_INDEX: usize = 9;
 const FROM_INDEX: usize = 10;
+
+fn do_nested_invokes(num_nested_invokes: u64, accounts: &[AccountInfo]) -> ProgramResult {
+    assert!(accounts[ARGUMENT_INDEX].is_signer);
+
+    let pre_argument_lamports = accounts[ARGUMENT_INDEX].lamports();
+    let pre_invoke_argument_lamports = accounts[INVOKED_ARGUMENT_INDEX].lamports();
+    **accounts[ARGUMENT_INDEX].lamports.borrow_mut() -= 5;
+    **accounts[INVOKED_ARGUMENT_INDEX].lamports.borrow_mut() += 5;
+
+    msg!("First invoke");
+    let instruction = create_instruction(
+        *accounts[INVOKED_PROGRAM_INDEX].key,
+        &[
+            (accounts[ARGUMENT_INDEX].key, true, true),
+            (accounts[INVOKED_ARGUMENT_INDEX].key, true, true),
+            (accounts[INVOKED_PROGRAM_INDEX].key, false, false),
+        ],
+        vec![NESTED_INVOKE, num_nested_invokes as u8],
+    );
+    invoke(&instruction, accounts)?;
+    msg!("2nd invoke from first program");
+    invoke(&instruction, accounts)?;
+
+    assert_eq!(
+        accounts[ARGUMENT_INDEX].lamports(),
+        pre_argument_lamports - 5 + (2 * num_nested_invokes)
+    );
+    assert_eq!(
+        accounts[INVOKED_ARGUMENT_INDEX].lamports(),
+        pre_invoke_argument_lamports + 5 - (2 * num_nested_invokes)
+    );
+    Ok(())
+}
 
 entrypoint!(process_instruction);
 fn process_instruction(
@@ -226,8 +263,10 @@ fn process_instruction(
                     )?,
                     accounts[DERIVED_KEY1_INDEX].key
                 );
+                let not_native_program_id = Pubkey::new_from_array([6u8; 32]);
+                assert!(!not_native_program_id.is_native_program_id());
                 assert_eq!(
-                    Pubkey::create_program_address(&[b"You pass butter"], &Pubkey::default())
+                    Pubkey::create_program_address(&[b"You pass butter"], &not_native_program_id)
                         .unwrap_err(),
                     PubkeyError::InvalidSeeds
                 );
@@ -239,8 +278,10 @@ fn process_instruction(
                     Pubkey::try_find_program_address(&[b"You pass butter"], program_id).unwrap();
                 assert_eq!(&address, accounts[DERIVED_KEY1_INDEX].key);
                 assert_eq!(bump_seed, bump_seed1);
+                let not_native_program_id = Pubkey::new_from_array([6u8; 32]);
+                assert!(!not_native_program_id.is_native_program_id());
                 assert_eq!(
-                    Pubkey::create_program_address(&[b"You pass butter"], &Pubkey::default())
+                    Pubkey::create_program_address(&[b"You pass butter"], &not_native_program_id)
                         .unwrap_err(),
                     PubkeyError::InvalidSeeds
                 );
@@ -281,31 +322,7 @@ fn process_instruction(
 
             msg!("Test nested invoke");
             {
-                assert!(accounts[ARGUMENT_INDEX].is_signer);
-
-                **accounts[ARGUMENT_INDEX].lamports.borrow_mut() -= 5;
-                **accounts[INVOKED_ARGUMENT_INDEX].lamports.borrow_mut() += 5;
-
-                msg!("First invoke");
-                let instruction = create_instruction(
-                    *accounts[INVOKED_PROGRAM_INDEX].key,
-                    &[
-                        (accounts[ARGUMENT_INDEX].key, true, true),
-                        (accounts[INVOKED_ARGUMENT_INDEX].key, true, true),
-                        (accounts[INVOKED_PROGRAM_DUP_INDEX].key, false, false),
-                        (accounts[INVOKED_PROGRAM_DUP_INDEX].key, false, false),
-                    ],
-                    vec![NESTED_INVOKE],
-                );
-                invoke(&instruction, accounts)?;
-                msg!("2nd invoke from first program");
-                invoke(&instruction, accounts)?;
-
-                assert_eq!(accounts[ARGUMENT_INDEX].lamports(), 42 - 5 + 1 + 1 + 1 + 1);
-                assert_eq!(
-                    accounts[INVOKED_ARGUMENT_INDEX].lamports(),
-                    10 + 5 - 1 - 1 - 1 - 1
-                );
+                do_nested_invokes(4, accounts)?;
             }
 
             msg!("Test privilege deescalation");
@@ -352,27 +369,6 @@ fn process_instruction(
                 for i in 0..100 {
                     assert_eq!(data[i as usize], 42);
                 }
-            }
-
-            msg!("Test writable deescalation");
-            {
-                const NUM_BYTES: usize = 10;
-                let mut buffer = [0; NUM_BYTES];
-                buffer.copy_from_slice(
-                    &accounts[INVOKED_ARGUMENT_INDEX].data.borrow_mut()[..NUM_BYTES],
-                );
-
-                let instruction = create_instruction(
-                    *accounts[INVOKED_PROGRAM_INDEX].key,
-                    &[(accounts[INVOKED_ARGUMENT_INDEX].key, false, false)],
-                    vec![WRITE_ACCOUNT, NUM_BYTES as u8],
-                );
-                let _ = invoke(&instruction, accounts);
-
-                assert_eq!(
-                    buffer,
-                    accounts[INVOKED_ARGUMENT_INDEX].data.borrow_mut()[..NUM_BYTES]
-                );
             }
 
             msg!("Create account and init data");
@@ -602,6 +598,55 @@ fn process_instruction(
                 vec![VERIFY_PRIVILEGE_DEESCALATION_ESCALATION_WRITABLE],
             );
             invoke(&invoked_instruction, accounts)?;
+        }
+        TEST_WRITABLE_DEESCALATION_WRITABLE => {
+            msg!("Test writable deescalation writable");
+            const NUM_BYTES: usize = 10;
+            let mut buffer = [0; NUM_BYTES];
+            buffer
+                .copy_from_slice(&accounts[INVOKED_ARGUMENT_INDEX].data.borrow_mut()[..NUM_BYTES]);
+
+            let instruction = create_instruction(
+                *accounts[INVOKED_PROGRAM_INDEX].key,
+                &[(accounts[INVOKED_ARGUMENT_INDEX].key, false, false)],
+                vec![WRITE_ACCOUNT, NUM_BYTES as u8],
+            );
+            let _ = invoke(&instruction, accounts);
+
+            assert_eq!(
+                buffer,
+                accounts[INVOKED_ARGUMENT_INDEX].data.borrow_mut()[..NUM_BYTES]
+            );
+        }
+        TEST_NESTED_INVOKE_TOO_DEEP => {
+            let _ = do_nested_invokes(5, accounts);
+        }
+        TEST_EXECUTABLE_LAMPORTS => {
+            msg!("Test executable lamports");
+            let mut accounts = accounts.to_vec();
+
+            // set account to executable and subtract lamports
+            accounts[ARGUMENT_INDEX].executable = true;
+            **(*accounts[ARGUMENT_INDEX].lamports).borrow_mut() -= 1;
+            // add lamports to dest account
+            **(*accounts[DERIVED_KEY1_INDEX].lamports).borrow_mut() += 1;
+
+            let instruction = create_instruction(
+                *program_id,
+                &[
+                    (accounts[ARGUMENT_INDEX].key, true, false),
+                    (accounts[DERIVED_KEY1_INDEX].key, true, false),
+                ],
+                vec![ADD_LAMPORTS, 0, 0, 0],
+            );
+            let _ = invoke(&instruction, &accounts);
+
+            // reset executable account
+            **(*accounts[ARGUMENT_INDEX].lamports).borrow_mut() += 1;
+        }
+        ADD_LAMPORTS => {
+            // make sure the total balance is fine
+            **accounts[0].lamports.borrow_mut() += 1;
         }
         _ => panic!(),
     }
