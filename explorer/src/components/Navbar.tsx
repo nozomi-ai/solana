@@ -3,6 +3,7 @@ import Logo from "img/logos-solana/dark-explorer-logo.svg";
 import { clusterPath } from "utils/url";
 import { Link, NavLink } from "react-router-dom";
 import { ClusterStatusButton } from "components/ClusterStatusButton";
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
 
 export function Navbar() {
   // TODO: use `collapsing` to animate collapsible navbar
@@ -24,9 +25,8 @@ export function Navbar() {
         </button>
 
         <div
-          className={`collapse navbar-collapse ms-auto me-4 ${
-            collapse ? "show" : ""
-          }`}
+          className={`collapse navbar-collapse ms-auto me-4 ${collapse ? "show" : ""
+            }`}
         >
           <ul className="navbar-nav me-auto">
             <li className="nav-item">
@@ -43,6 +43,11 @@ export function Navbar() {
               <NavLink className="nav-link" to={clusterPath("/tx/inspector")}>
                 Inspector
               </NavLink>
+            </li>
+            <li className="nav-item">
+              {/* <div className="nav-link"> */}
+                <WalletMultiButton />
+              {/* </div> */}
             </li>
           </ul>
         </div>
