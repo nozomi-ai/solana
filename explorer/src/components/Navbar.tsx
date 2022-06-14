@@ -4,6 +4,7 @@ import { clusterPath } from "utils/url";
 import { Link, NavLink } from "react-router-dom";
 import { ClusterStatusButton } from "components/ClusterStatusButton";
 import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+require('@solana/wallet-adapter-react-ui/styles.css');
 
 export function Navbar() {
   // TODO: use `collapsing` to animate collapsible navbar
