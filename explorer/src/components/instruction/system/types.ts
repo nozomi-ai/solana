@@ -1,7 +1,5 @@
-/* eslint-disable @typescript-eslint/no-redeclare */
-
 import { enums, number, type, string, Infer } from "superstruct";
-import { PublicKeyFromString } from "validators/pubkey";
+import { PublicKeyFromString } from "src/validators/pubkey";
 
 export type CreateAccountInfo = Infer<typeof CreateAccountInfo>;
 export const CreateAccountInfo = type({
@@ -96,6 +94,11 @@ export const TransferWithSeedInfo = type({
   sourceOwner: PublicKeyFromString,
 });
 
+export type UpgradeNonceInfo = Infer<typeof UpgradeNonceInfo>;
+export const UpgradeNonceInfo = type({
+  nonceAccount: PublicKeyFromString,
+});
+
 export type SystemInstructionType = Infer<typeof SystemInstructionType>;
 export const SystemInstructionType = enums([
   "createAccount",
@@ -110,4 +113,5 @@ export const SystemInstructionType = enums([
   "authorizeNonce",
   "initializeNonce",
   "transferWithSeed",
+  "upgradeNonce",
 ]);

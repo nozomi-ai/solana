@@ -1,24 +1,31 @@
 import React from "react";
-import Logo from "img/logos-solana/dark-explorer-logo.svg";
-import { clusterPath } from "utils/url";
-import { Link, NavLink } from "react-router-dom";
-import { ClusterStatusButton } from "components/ClusterStatusButton";
+import Image from "next/image";
+import Link from "next/link";
+import { useRouter } from "next/router";
+import { clusterPath } from "src/utils/url";
+import { ClusterStatusButton } from "src/components/ClusterStatusButton";
+import { NavLink } from "src/components/NavLink";
 import { WalletDisconnectButton, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWallet } from "@solana/wallet-adapter-react";
 
 export function Navbar() {
-  // TODO: use `collapsing` to animate collapsible navbar
+  const router = useRouter();
+
   const [showSidebar, setShowSidebar] = React.useState(false);
+  // TODO: use `collapsing` to animate collapsible navbar
   const [collapse, setCollapse] = React.useState(false);
-  // find user address from wallet
 
   const { connected } = useWallet();
 
   return (
     <nav className="navbar navbar-expand-md navbar-light">
       <div className="container">
-        <Link to={clusterPath("/")}>
-          <img src={Logo} width="250" alt="Solana Explorer" />
+        <Link href={clusterPath("/", router.asPath)} passHref>
+          <a>
+            <div className="d-flex">
+              <Image src="/img/logos-solana/dark-explorer-logo.svg" width={250} height={21.48} alt="Solana Explorer" />
+            </div>
+          </a>
         </Link>
 
         <button
@@ -35,18 +42,24 @@ export function Navbar() {
         >
           <ul className="navbar-nav me-auto">
             <li className="nav-item">
-              <NavLink className="nav-link" to={clusterPath("/")} exact>
-                Cluster Stats
+              <NavLink activeClassName="active" href={clusterPath("/", router.asPath)}>
+                <span className="nav-link">
+                  Cluster Stats
+                </span>
               </NavLink>
             </li>
             <li className="nav-item">
-              <NavLink className="nav-link" to={clusterPath("/supply")}>
-                Supply
+              <NavLink activeClassName="active" href={clusterPath("/supply", router.asPath)}>
+                <span className="nav-link">
+                  Supply
+                </span>
               </NavLink>
             </li>
             <li className="nav-item">
-              <NavLink className="nav-link" to={clusterPath("/tx/inspector")}>
-                Inspector
+              <NavLink activeClassName="active" href={clusterPath("/tx/inspector", router.asPath)}>
+                <span className="nav-link">
+                  Inspector
+                </span>
               </NavLink>
             </li>
             <li className="nav-item">
