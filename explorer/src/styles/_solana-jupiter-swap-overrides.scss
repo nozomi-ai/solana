@@ -1,0 +1,223 @@
+$light-gray: #343A39;
+$medium-gray: #272C2B;
+$dark-gray: #1B1E1D;
+$purple: #9945FF;
+$cyan: #71E5EDE0;
+
+.jupiter-modal-container {
+  max-width: 520px;
+
+  .modal-content {
+    background-color: $medium-gray;
+  }
+
+  .main-card {
+    background-color: $light-gray;
+    border-width: 0;
+  }
+
+  .form-control {
+    border-width: 0;
+  }
+
+  .fe-search {
+    font-size: 18px;
+  }
+}
+
+.token-search-card, .slippage-card, .aggregator-card {
+  z-index: 4;
+  width: 100%;
+  background-color: $light-gray;
+  position: absolute;
+  border-width: 0;
+}
+
+.aggregator-card {
+  top: 3%;
+  max-width: 380px;
+}
+
+.token-search-card {
+  max-width: 500px;
+}
+
+.token-search-body {
+  row-gap: 6px;
+}
+
+.token-container {
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  background-color: $light-gray;
+
+  &:hover {
+    cursor: pointer;
+    background-color: $medium-gray;
+  }
+
+  .token-logo {
+    width: 20px;
+    height: 20px;
+  }
+
+  .token-symbol {
+    color: white;
+  }
+}
+
+.slippage-card {
+  max-width: 450px;
+  right: 10%;
+  top: 5%;
+}
+
+.slippage-close {
+  font-size: 18px;
+  position: absolute;
+  color: white;
+  cursor: pointer;
+  top: 15px;
+  right: 15px;
+}
+
+.opacity-text {
+  color: white;
+  opacity: 0.5;
+}
+
+.slippage-btn {
+  background-color: $medium-gray;
+  border-width: 0;
+
+  &:hover,
+  &.selected {
+    background-color: $purple;
+
+    .opacity-text {
+      opacity: 1;
+    }
+  }
+}
+
+.custom-slippage {
+  background-color: $medium-gray;
+}
+
+.custom-text {
+  font-size: 10px;
+}
+
+.input-box {
+  position: relative;
+  background-color: $medium-gray;
+}
+
+.save-btn {
+  background-color: $dark-gray;
+  border-width: 0;
+  color: white;
+}
+
+// to hide scrollbar for <input type="number">
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  /* display: none; <- Crashes Chrome on hover */
+  -webkit-appearance: none;
+  margin: 0;
+  /* <-- Apparently some margin are still there even though it's hidden */
+}
+
+input[type=number] {
+  -moz-appearance: textfield;
+  /* Firefox */
+}
+
+.slippage-setting-btn {
+  background-color: $light-gray;
+  border-width: 0;
+  font-size: 16px;
+}
+
+.fs-7 {
+  font-size: 12px;
+}
+
+.switch > .rounded-circle {
+  border: solid 1px rgba(255, 255, 255, 0.5);
+  width: 32px;
+  height: 32px;
+  background: none;
+  opacity: 0.5;
+  color: white;
+}
+
+.border-left {
+  border-left: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.border-gradient {
+  position: relative;
+  height: 50px;
+
+  &::after {
+    position: absolute;
+    top: -2px; bottom: -2px;
+    left: -2px; right: -2px;
+    background: linear-gradient($purple, $cyan);
+    content: '';
+    z-index: 1;
+    border-radius: 0.3rem;
+  }
+
+  .border-gradient-div {
+    position: absolute;
+    border-radius: 0.3rem;
+    z-index: 2;
+    background-color: black;
+    height: 100%;
+    left: 0;
+    top: 0;
+  }
+
+  .border-gradient-text {
+    position: absolute;
+    z-index: 3;
+    color: white;
+    top: 0;
+    transform: translate(0, 50%);
+  }
+}
+
+.token-search-btn-container {
+  background-color: $medium-gray;
+  border-width: 0;
+
+  button {
+    background: none;
+    border-width: 0;
+    color: white;
+  }
+}
+
+.more-btn {
+  border: none;
+  background: none;
+  width: 80%;
+}
+
+.route-container {
+  background-color: $medium-gray;
+  padding-top: 16px;
+  padding-bottom: 16px;
+}
+
+.selected-token {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  max-width: 90%;
+}
+
+.chevron.rotate {
+  transform: rotate(180deg);
+}

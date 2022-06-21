@@ -43,3 +43,6 @@ $path-to-fonts: "/fonts" !default;
 
 // Custom overrides for Wallet connector
 @import "solana-wallet-adapter-overrrides";
+
+// Custom overrides for Jupiter swap modal
+@import "solana-jupiter-swap-overrides";

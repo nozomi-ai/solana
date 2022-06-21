@@ -7,6 +7,7 @@ import { ClusterStatusButton } from "src/components/ClusterStatusButton";
 import { NavLink } from "src/components/NavLink";
 import { WalletDisconnectButton, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
 import { useWallet } from "@solana/wallet-adapter-react";
+import { JupiterSwapModal } from './JupiterSwapModal';
 
 export function Navbar() {
   const router = useRouter();
@@ -16,6 +17,8 @@ export function Navbar() {
   const [collapse, setCollapse] = React.useState(false);
 
   const { connected } = useWallet();
+
+  const [showJupiterModal, setShowJupiterModal] = React.useState(false);
 
   return (
     <nav className="navbar navbar-expand-md navbar-light">
@@ -83,7 +86,7 @@ export function Navbar() {
                       </button>
                     </div>
                     <div className="sidenav-item">
-                      <button><span className="fe fe-repeat"></span>Swap Tokens</button>
+                      <button onClick={() => setShowJupiterModal(true)}><span className="fe fe-repeat"></span>Swap Tokens</button>
                     </div>
                     <hr />
                     <div className="sidenav-item-disconnect">
@@ -93,6 +96,8 @@ export function Navbar() {
                   </div>
                 </div>)
                 : null}
+
+                <JupiterSwapModal dialogClassName="jupiter-modal-container" show={showJupiterModal} onHide={() => setShowJupiterModal(false)}></JupiterSwapModal>
 
             </li>
           </ul>
