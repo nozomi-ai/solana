@@ -1,38 +1,40 @@
-.nav-item .button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: black;
-  background-color: #1dd79b;
-  border: none;
-  border-radius: 7px;
-  font-size: 15px;
-  padding: 3px 12px;
-  z-index: 2;
-}
+.nav-item {
+  .button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: black;
+    background-color: #1dd79b;
+    border: none;
+    border-radius: 7px;
+    font-size: 15px;
+    padding: 3px 12px;
+    z-index: 2;
+  }
 
-.nav-item button span {
-  font-size: 25px;
-  padding-right: 8px;
-}
+  button span {
+    font-size: 25px;
+    padding-right: 8px;
+  }
 
-.nav-item .button-hidden {
-  display: none;
+  .button-hidden {
+    display: none;
+  }
+
+  .user-address {
+    background-color: #1dd79b;
+    color: #1e2423;
+  }
+
+  .user-address:hover {
+    background-color: #1ba579;
+    color: white;
+  }
 }
 
 .button-hidden .user-address {
   position: absolute;
   top: 5px;
-}
-
-.nav-item .user-address {
-  background-color: #1dd79b;
-  color: #1e2423;
-}
-
-.nav-item .user-address:hover {
-  background-color: #1ba579;
-  color: white;
 }
 
 .connect-btn {
@@ -62,10 +64,6 @@
   width: 25%;
 }
 
-.sidenav:focus {
-  outline: none;
-}
-
 .close {
   font-size: 25px;
   color: white;
@@ -80,64 +78,74 @@
   flex-direction: column;
   width: 100%;
   padding-top: 20px;
-}
 
-.sidenav-item button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  border: 1.5px solid #333935;
-  background-color: transparent;
-  width: 100%;
-  border-radius: 7px;
-  font-size: 18px;
-  padding: 3px;
-  margin-top: 10px;
-  margin-bottom: 5px;
+  hr {
+    color: #333935;
+    height: 1.5px;
+    width: 80%;
+  }
 }
 
 .sidenav-item {
   width: 80%;
-}
 
-.sidenav-item button span {
-  font-size: 28px;
-  padding-right: 8px;
-}
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    border: 1.5px solid #333935;
+    background-color: transparent;
+    width: 100%;
+    border-radius: 7px;
+    font-size: 18px;
+    padding: 3px;
+    margin-top: 10px;
+    margin-bottom: 5px;
+  }
 
-.sidenav-body hr {
-  color: #333935;
-  height: 1.5px;
-  width: 80%;
+  button span {
+    font-size: 28px;
+    padding-right: 8px;
+  }
 }
 
 .sidenav-item-disconnect {
   width: 80%;
-}
 
-.sidenav-item-disconnect button span {
-  font-size: 28px;
-  padding-right: 8px;
-}
+  button {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #1dd79b;
+    border: 1.5px solid #1dd79b;
+    background-color: transparent;
+    width: 80%;
+    border-radius: 7px;
+    font-size: 18px;
+    padding: 5px;
+    margin-top: 10px;
+    margin-bottom: 5px;
+    position: absolute;
+  }
 
-.sidenav-item-disconnect button {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1dd79b;
-  border: 1.5px solid #1dd79b;
-  background-color: transparent;
-  width: 80%;
-  border-radius: 7px;
-  font-size: 18px;
-  padding: 5px;
-  margin-top: 10px;
-  margin-bottom: 5px;
-  position: absolute;
+  button span {
+    font-size: 28px;
+    padding-right: 8px;
+  }
 }
 
 .disconnect-btn {
   z-index: 3;
   opacity: 0;
+}
+
+@media (max-width: 750px) {
+  .sidenav {
+    width: 60%;
+  }
+  .globe {
+    margin-left: 0px;
+    margin-top: 4px;
+  }
 }

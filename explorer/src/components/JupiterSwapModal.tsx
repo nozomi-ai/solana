@@ -373,7 +373,7 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3">
 									<div className="d-flex flex-column ps-2">
 										<div className="mb-1 fs-5">Mercurial x Radium</div>
-										<div className="opacity-text fs-5">SOL -> stSOL</div>
+										<div className="opacity-text fs-5">SOL &#8594; stSOL</div>
 									</div>
 									<div className="fs-3">166.84379</div>
 								</div>
