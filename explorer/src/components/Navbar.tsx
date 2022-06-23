@@ -65,47 +65,50 @@ export function Navbar() {
                 </span>
               </NavLink>
             </li>
-            <li className="nav-item">
-              <button className={connected ? 'button-hidden' : 'button'}><span className="fe fe-zap"></span>Connect Wallet</button>
-              <WalletMultiButton className={connected ? 'user-address btn btn-primary' : 'connect-btn'} />
-            </li>
-            <li className="nav-item">
-              {connected ? (
-                <span className="fe fe-globe btn btn-primary globe" onClick={() => setShowSidebar(true)}></span>
-              ) : null}
-
-              {showSidebar ? (
-                <div className="sidenav">
-                  <div className="sidenav-header">
-                    <span className="fe fe-x close" onClick={() => setShowSidebar(false)}></span>
-                  </div>
-                  <div className="sidenav-body">
-                    <div className="sidenav-item">
-                      <button>
-                        <span className="fe fe-user"></span>Account
-                      </button>
-                    </div>
-                    <div className="sidenav-item">
-                      <button onClick={() => setShowJupiterModal(true)}><span className="fe fe-repeat"></span>Swap Tokens</button>
-                    </div>
-                    <hr />
-                    <div className="sidenav-item-disconnect">
-                      <button><span className="fe fe-zap-off"></span>Disconnect</button>
-                      <WalletDisconnectButton className="disconnect-btn" onClick={() => setShowSidebar(false)} />
-                    </div>
-                  </div>
-                </div>)
-                : null}
-
-                <JupiterSwapModal dialogClassName="jupiter-modal-container" show={showJupiterModal} onHide={() => setShowJupiterModal(false)}></JupiterSwapModal>
-
-            </li>
           </ul>
+        </div>
+
+        <div className="nav-item-right">
+          <button className={connected ? 'button-hidden' : 'button'}><span className="fe fe-zap"></span>Connect Wallet</button>
+          <WalletMultiButton className={connected ? 'user-address btn btn-primary' : 'connect-btn'} />
+        </div>
+
+        <div className="nav-item-right">
+          {connected ? (
+            <span className="fe fe-globe btn btn-primary globe" onClick={() => setShowSidebar(true)}></span>
+          ) : null}
+
+          {showSidebar ? (
+            <div className="sidenav">
+              <div className="sidenav-header">
+                <span className="fe fe-x close" onClick={() => setShowSidebar(false)}></span>
+              </div>
+              <div className="sidenav-body">
+                <div className="sidenav-item">
+                  <button>
+                    <span className="fe fe-user"></span>Account
+                  </button>
+                </div>
+                <div className="sidenav-item">
+                  <button onClick={() => setShowJupiterModal(true)}><span className="fe fe-repeat"></span>Swap Tokens</button>
+                </div>
+                <hr />
+                <div className="sidenav-item-disconnect">
+                  <button><span className="fe fe-zap-off"></span>Disconnect</button>
+                  <WalletDisconnectButton className="disconnect-btn" onClick={() => setShowSidebar(false)} />
+                </div>
+              </div>
+            </div>)
+            : null}
+
+          <JupiterSwapModal dialogClassName="jupiter-modal-container" show={showJupiterModal} onHide={() => setShowJupiterModal(false)}></JupiterSwapModal>
+
         </div>
 
         <div className="d-none d-md-block">
           <ClusterStatusButton />
         </div>
+
       </div>
     </nav>
   );

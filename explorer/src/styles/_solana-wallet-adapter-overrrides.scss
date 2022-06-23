@@ -1,4 +1,4 @@
-.nav-item {
+.nav-item-right {
   .button {
     display: flex;
     align-items: center;
@@ -10,6 +10,7 @@
     font-size: 15px;
     padding: 3px 12px;
     z-index: 2;
+    margin-right: 10px;
   }
 
   button span {
@@ -23,6 +24,7 @@
 
   .user-address {
     background-color: #1dd79b;
+    height: 42px;
     color: #1e2423;
   }
 
@@ -46,7 +48,8 @@
 
 .globe {
   margin-left: 8px;
-  font-size: 20px;
+  margin-right: 8px;
+  font-size: 16px;
   color: white;
 }
 
@@ -145,7 +148,6 @@
     width: 60%;
   }
   .globe {
-    margin-left: 0px;
-    margin-top: 4px;
+    margin: 0px;
   }
 }
