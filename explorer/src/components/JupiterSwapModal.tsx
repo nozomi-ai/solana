@@ -1,10 +1,12 @@
-import { TOKEN_LIST_URL, useJupiter } from "@jup-ag/react-hook";
+/* eslint-disable @next/next/no-img-element */
+import { TOKEN_LIST_URL, useJupiter, JupiterProvider } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
 import { useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { PublicKey } from "@solana/web3.js";
+
 
 export interface Token {
 	chainId: number; // 101,
@@ -27,26 +29,29 @@ export function JupiterSwapModal(props: ModalProps) {
 	const wallet = useWallet();
 	const [tokens, setTokens] = useState<Token[]>([]);
 	const [tokenMap, setTokenMap] = useState<Map<string, TokenInfo>>(new Map());
-
+	const { connection } = useConnection();
+	const [inputToken, setInputToken] = useState<any>({});
+	const [outputToken, setOutputToken] = useState<any>({});
+	const [tokenSearchType, setTokenSearchType] = useState<string>("");
 	useEffect(() => {
 		// Fetch token list from Jupiter API
 		fetch(TOKEN_LIST_URL["devnet"])
-			.then((response) => response.json())
-			.then((tokens) => {
-				setTokens(tokens);
-				// setTokenMap(
-				// 	tokens.reduce((map, item) => {
-				// 		map.set(item.address, item);
-				// 		return map;
-				// 	}, new Map())
-				// );
+			.then((response) => {
+				console.log("deb");
+				response.json().then((tokens) => [
+					setTokens(tokens),
+				])
+			}).catch((error) => {
+				console.error(error);
 			});
 	}, []);
-
-	const [inputMint] = useState<PublicKey>(
+	console.log("hello");
+	console.log(tokens);
+	console.log(tokens[0]?.logoURI);
+	const [inputMint,setInputMint] = useState<PublicKey>(
 		new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	);
-	const [outputMint] = useState<PublicKey>(
+	const [outputMint,setOutputMint] = useState<PublicKey>(
 		new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
 	);
 
@@ -85,13 +90,26 @@ export function JupiterSwapModal(props: ModalProps) {
 	// token search modal
 	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
 
-	const onClickInputToken = (address: string) => {
-		setFormValue((prevValue) => {
-			return {
-				...prevValue,
-				inputMint: new PublicKey(address),
-			};
-		});
+	const setTokenValues = (token: any) => {
+		if (tokenSearchType === 'pay') { 
+			setFormValue((prevValue) => {
+				return {
+					...prevValue,
+					inputMint: new PublicKey(token.address),
+				};
+			});
+			setInputMint(new PublicKey(token.address));
+			setInputToken(token);
+		} else {
+			setFormValue((prevValue) => {
+				return {
+					...prevValue,
+					outputMint: new PublicKey(token.address),
+				};
+			});
+			setOutputMint(new PublicKey(token.address));
+			setOutputToken(token);
+		}
 		setShowTokenSearch(false);
 	};
 
@@ -146,7 +164,31 @@ export function JupiterSwapModal(props: ModalProps) {
 	};
 
 	const [showMore, setShowMore] = useState(false);
-
+    const jupiter = useJupiter({
+		amount: 1 * (10 ** 6), // raw input amount of tokens
+		inputMint,
+		outputMint,
+		slippage: 1, // 1% slippage
+		debounceTime: 250, // debounce ms time before refresh
+	})
+	console.log(inputMint);
+	console.log(outputMint);
+	const {
+		allTokenMints, // all the token mints that is possible to be input
+		routeMap, // routeMap, same as the one in @jup-ag/core
+		exchange, // exchange 
+		refresh, // function to refresh rates
+		lastRefreshTimestamp, // timestamp when the data was last returned
+		loading, // loading states
+		routes, // all the routes from inputMint to outputMint
+		error,
+	} = jupiter
+	console.log(routes);
+	console.log("hello");
+	const setTokenSearchValues = (type:any) => {
+		setTokenSearchType(type);
+		setShowTokenSearch(true)
+	}
 	return (
 		<Modal {...props} centered>
 			<Modal.Body>
@@ -286,7 +328,7 @@ export function JupiterSwapModal(props: ModalProps) {
 										<button
 											className="rounded-3 p-3 d-flex token-container me-3"
 											key={token.address}
-											// onClick={() => onClickInputToken(tokenMint)}
+											onClick={() => setTokenValues(token)}
 											>
 											<div className="me-3">
 												<img
@@ -313,10 +355,15 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="d-flex justify-content-between mb-2 rounded-3 p-3 token-search-btn-container">
 									<button
 										className="d-flex align-items-center"
-										onClick={() => setShowTokenSearch(true)}>
+										onClick={() => setTokenSearchValues("pay")}>
 										{/* <div><img src={}></img></div> */}
 										<div className="me-2 selected-token">
-											{formValue.inputMint?.toBase58()}
+											{inputToken?.logoURI && (
+                                              <img src={inputToken?.logoURI} alt="input-token"
+											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
+											)}
+											{` ${inputToken?.symbol}`}
+											{/* {formValue.inputMint?.toBase58()} */}
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
 									</button>
@@ -350,10 +397,14 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="d-flex justify-content-between mb-2 rounded-3 p-3 token-search-btn-container">
 									<button
 										className="d-flex align-items-center"
-										onClick={() => setShowTokenSearch(true)}>
+										onClick={() => setTokenSearchValues("receive")}>
 										{/* <div><img src={}></img></div> */}
 										<div className="me-2 selected-token">
-											{formValue.inputMint?.toBase58()}
+										   {outputToken?.logoURI && (
+                                              <img src={outputToken?.logoURI} alt="input-token"
+											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
+											)}
+											{` ${outputToken?.name}`}
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
 									</button>
@@ -406,6 +457,6 @@ export function JupiterSwapModal(props: ModalProps) {
 					<div className="w-100 d-flex justify-content-center align-items-center border-gradient-text">Swap</div>
 				</button>
 			</Modal.Body>
-		</Modal>
+			</Modal>
 	);
 }
