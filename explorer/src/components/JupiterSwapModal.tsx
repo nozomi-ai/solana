@@ -33,6 +33,7 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [inputToken, setInputToken] = useState<any>({});
 	const [outputToken, setOutputToken] = useState<any>({});
 	const [tokenSearchType, setTokenSearchType] = useState<string>("");
+	const [exchangeAmount, setExchangeAmount] = useState<number>(1);
 	useEffect(() => {
 		// Fetch token list from Jupiter API
 		fetch(TOKEN_LIST_URL["devnet"])
@@ -98,6 +99,8 @@ export function JupiterSwapModal(props: ModalProps) {
 					inputMint: new PublicKey(token.address),
 				};
 			});
+			const tokenExchangeAmount = tokens.find(item => item.address === token.address);
+			setExchangeAmount(tokenExchangeAmount?.decimals || 1);
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
 		} else {
@@ -165,7 +168,7 @@ export function JupiterSwapModal(props: ModalProps) {
 
 	const [showMore, setShowMore] = useState(false);
     const jupiter = useJupiter({
-		amount: 1 * (10 ** 6), // raw input amount of tokens
+		amount: exchangeAmount, // raw input amount of tokens
 		inputMint,
 		outputMint,
 		slippage: 1, // 1% slippage
@@ -362,7 +365,7 @@ export function JupiterSwapModal(props: ModalProps) {
                                               <img src={inputToken?.logoURI} alt="input-token"
 											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
 											)}
-											{` ${inputToken?.symbol}`}
+												{inputToken?.symbol ? (` ${inputToken?.name}`): "Select Token"}
 											{/* {formValue.inputMint?.toBase58()} */}
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
@@ -404,7 +407,8 @@ export function JupiterSwapModal(props: ModalProps) {
                                               <img src={outputToken?.logoURI} alt="input-token"
 											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
 											)}
-											{` ${outputToken?.name}`}
+											{outputToken?.symbol ? (` ${outputToken?.name}`): "Select Token"}
+
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
 									</button>
