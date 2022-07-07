@@ -26,17 +26,15 @@ interface SlippageOption {
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
 export function JupiterSwapModal(props: ModalProps) {
-	const wallet = useWallet();
 	const [tokens, setTokens] = useState<Token[]>([]);
 	const [tokenMap, setTokenMap] = useState<Map<string, TokenInfo>>(new Map());
-	const { connection } = useConnection();
 	const [inputToken, setInputToken] = useState<any>({});
 	const [outputToken, setOutputToken] = useState<any>({});
 	const [tokenSearchType, setTokenSearchType] = useState<string>("");
 	const [exchangeAmount, setExchangeAmount] = useState<number>(1);
 	useEffect(() => {
 		// Fetch token list from Jupiter API
-		fetch(TOKEN_LIST_URL["devnet"])
+		fetch(TOKEN_LIST_URL["mainnet-beta"])
 			.then((response) => {
 				console.log("deb");
 				response.json().then((tokens) => [
@@ -185,8 +183,10 @@ export function JupiterSwapModal(props: ModalProps) {
 		loading, // loading states
 		routes, // all the routes from inputMint to outputMint
 		error,
-	} = jupiter
+	} = jupiter;
+	// console.log(allTokenMints);
 	console.log(routes);
+	// console.log(routeMap);
 	console.log("hello");
 	const setTokenSearchValues = (type:any) => {
 		setTokenSearchType(type);
@@ -365,7 +365,7 @@ export function JupiterSwapModal(props: ModalProps) {
                                               <img src={inputToken?.logoURI} alt="input-token"
 											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
 											)}
-												{inputToken?.symbol ? (` ${inputToken?.name}`): "Select Token"}
+												{inputToken?.symbol ? (` ${inputToken?.symbol}`): "Select Token"}
 											{/* {formValue.inputMint?.toBase58()} */}
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
@@ -407,7 +407,7 @@ export function JupiterSwapModal(props: ModalProps) {
                                               <img src={outputToken?.logoURI} alt="input-token"
 											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
 											)}
-											{outputToken?.symbol ? (` ${outputToken?.name}`): "Select Token"}
+											{outputToken?.symbol ? (` ${outputToken?.symbol}`): "Select Token"}
 
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
