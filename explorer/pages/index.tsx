@@ -18,12 +18,14 @@ import { useVoteAccounts } from "src/providers/accounts/vote-accounts";
 import { CoingeckoStatus, useCoinGecko } from "src/utils/coingecko";
 import { Epoch } from "src/components/common/Epoch";
 import { TimestampToggle } from "src/components/common/TimestampToggle";
+import { RPCNodeMap } from "src/components/RPCNodeMap";
 
 const CLUSTER_STATS_TIMEOUT = 5000;
 
 export function ClusterStatsPage() {
   return (
     <div className="container mt-4">
+      <RPCNodeMap />
       <StakingComponent />
       <div className="card">
         <div className="card-header">

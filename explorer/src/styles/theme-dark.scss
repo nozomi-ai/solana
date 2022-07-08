@@ -46,3 +46,6 @@ $path-to-fonts: "/fonts" !default;
 
 // Custom overrides for Jupiter swap modal
 @import "solana-jupiter-swap-overrides";
+
+// Custom overrides for RPC node map
+@import "solana-rpc-node-map-overrides";
