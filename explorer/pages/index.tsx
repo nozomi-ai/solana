@@ -25,7 +25,7 @@ const CLUSTER_STATS_TIMEOUT = 5000;
 export function ClusterStatsPage() {
   return (
     <div className="container mt-4">
-      <RPCNodeMap />
+        <RPCNodeMap />
       <StakingComponent />
       <div className="card">
         <div className="card-header">

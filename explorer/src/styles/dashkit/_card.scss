@@ -15,12 +15,23 @@
   box-shadow: $card-box-shadow;
 }
 
+.map-card{
+  margin-bottom: $card-margin-bottom;
+  border-color: $card-outline-color;
+  // box-shadow: $card-box-shadow;
+  contain: strict;
+  height: 60vh;
+  // padding: 20px;
+}
+
+.map-card > * {
+  flex-shrink: 0;
+}
 .card > * {
   flex-shrink: 0;
 }
 
 // Header
-
 .card-header {
   display: flex;
   flex-direction: row;

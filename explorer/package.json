@@ -36,7 +36,9 @@
     "chart.js": "^2.9.4",
     "classnames": "^2.3.1",
     "coingecko-api": "^1.0.10",
+    "deck.gl": "^8.8.3",
     "humanize-duration-ts": "^2.1.1",
+    "mapbox-gl": "^2.9.1",
     "moment": "^2.29.3",
     "next": "12.1.6",
     "react": "18.2.0",
@@ -46,6 +48,7 @@
     "react-countup": "^6.2.0",
     "react-dom": "18.2.0",
     "react-json-view": "^1.21.3",
+    "react-map-gl": "^6.1.19",
     "react-moment": "^1.1.2",
     "react-select": "^4.3.1",
     "sharp": "^0.30.6"
