@@ -1,3 +1,4 @@
+/* eslint-disable react/jsx-key */
 /* eslint-disable @next/next/no-img-element */
 import { TOKEN_LIST_URL, useJupiter, JupiterProvider } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
@@ -421,17 +422,22 @@ export function JupiterSwapModal(props: ModalProps) {
 
 						<div className="d-flex flex-column">
 							<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
-									<div>... routes found!</div>
+							  <div style={{color: "#909593"}}>{routes?.length} routes found!</div>
 							</div>
 
 							<div>
-								<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3">
+								{routes?.map((route, index) => {
+									return (
+                                <div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
 									<div className="d-flex flex-column ps-2">
-										<div className="mb-1 fs-5">Mercurial x Radium</div>
+												<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
 										<div className="opacity-text fs-5">SOL &#8594; stSOL</div>
 									</div>
 									<div className="fs-3">166.84379</div>
 								</div>
+									);
+								 })}
+								
 							</div>
 
 							<div className="d-flex justify-content-between mt-3">
