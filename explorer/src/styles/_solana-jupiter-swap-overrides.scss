@@ -211,6 +211,22 @@ input[type=number] {
   padding-bottom: 16px;
 }
 
+.routes-container {
+  // background-color: red;
+  height: 28vh;
+  overflow-y: auto;
+}
+.routes-container::-webkit-scrollbar {
+  width: 6px;
+}
+.routes-container::-webkit-scrollbar-thumb {
+  margin: 2px;
+  border-radius: 10px;
+  background: #f1f1f1;
+}
+.routes-container::-webkit-scrollbar-track {
+  border-radius: 10px;
+}
 .selected-token {
   text-overflow: ellipsis;
   overflow: hidden;
@@ -220,4 +236,17 @@ input[type=number] {
 
 .chevron.rotate {
   transform: rotate(180deg);
+}
+.input-balance-reset-button {
+  background-color: $medium-gray;
+  border-width: 0;
+  color: white;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  margin-left: 5px;
+  cursor: pointer;
+  padding: 2px  15px  2px  15px;
+  font-size: 10px;
+  border-radius: 10px;
 }

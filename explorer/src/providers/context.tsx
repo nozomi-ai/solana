@@ -1,4 +1,4 @@
-import React, { FC, ReactNode, useMemo } from 'react';
+import React, { FC, ReactNode, useEffect, useMemo, useState } from 'react';
 import { ConnectionProvider, useConnection, useWallet, WalletProvider } from '@solana/wallet-adapter-react';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { GlowWalletAdapter, LedgerWalletAdapter, PhantomWalletAdapter, SlopeWalletAdapter, SolflareWalletAdapter, SolletWalletAdapter, TorusWalletAdapter } from '@solana/wallet-adapter-wallets';
@@ -14,7 +14,6 @@ const JupiterApp = ({ children }) => {
     const url = "https://ssc-dao.genesysgo.net/";
     const connection = new Connection(url);
     const wallet = useWallet();
-    
     return (
       <JupiterProvider
         cluster="mainnet-beta"
