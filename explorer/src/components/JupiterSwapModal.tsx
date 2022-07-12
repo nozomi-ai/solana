@@ -119,7 +119,7 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
 			// if (tokenExchangeAmount) {
-				setExchangeAmount(inputBalance * (10 ** token?.decimals) || 1);
+				setExchangeAmount(parseInt((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			// }
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
@@ -263,8 +263,8 @@ export function JupiterSwapModal(props: ModalProps) {
 					signAllTransactions: wallet.signAllTransactions,
 					signTransaction: wallet.signTransaction,
 				},
-				route: bestRoute,
-				confirmationWaiterFactory: async (txid: any) => {
+				routeInfo: bestRoute,  
+				onTransaction: async (txid: any) => {
 					console.log("sending transaction");
 					await connection.confirmTransaction(txid);
 					console.log("confirmed transaction");
@@ -416,12 +416,12 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="fs-7 d-flex">
 									<div className="fs-7 d-flex justify-content-center align-items-center"> Balance: {balance}</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount((inputBalance/2) * (10 ** inputToken?.decimals) || 1);
-										setInputBalance(inputBalance / 2)
+										setExchangeAmount(parseInt(((inputBalance/2) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setInputBalance(parseInt((inputBalance/2 - 0.05).toString()))
 									}}>HALF</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount((balance) * (10 ** inputToken?.decimals) || 1);
-										setInputBalance(balance - 0.05)
+										setExchangeAmount(parseInt(((balance) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setInputBalance(parseInt((balance - 0.05).toString()))
 									}
 									}>MAX</div>
 								</div>
