@@ -2,12 +2,15 @@
 /* eslint-disable @next/next/no-img-element */
 import { TOKEN_LIST_URL, useJupiter, JupiterProvider } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
-import { useEffect, useState, useMemo } from "react";
+import { ChangeEvent, useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import {LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { Connection } from "@solana/web3.js";
+import dynamic from "next/dynamic";
+const BrowserReactSelect = dynamic(() => import("react-select"), { ssr: false })
+import { InputActionMeta, ActionMeta, ValueType } from "react-select";
 
 export interface Token {
 	chainId: number; // 101,
@@ -27,6 +30,7 @@ interface SlippageOption {
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
 export function JupiterSwapModal(props: ModalProps) {
+	const [allTokens, setAllTokens] = useState<Token[]>([]);
 	const [tokens, setTokens] = useState<Token[]>([]);
 	const [tokenMap, setTokenMap] = useState<Map<string, TokenInfo>>(new Map());
 	const [inputToken, setInputToken] = useState<any>({});
@@ -35,11 +39,12 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [exchangeAmount, setExchangeAmount] = useState<number>(1);
 	const [displayRoutes, setDisplayRoutes] = useState<any[]>([]);
 	const [additionalRoutes, setAdditionalRoutes] = useState<any[]>([]);
+	const [tokenLoading, setTokenLoading] = useState<boolean>(false);
 	const url = "https://ssc-dao.genesysgo.net/";
-    const connection = new Connection(url);
-    const wallet = useWallet();
-    const [balance, setBalance] = useState(0);
-    const setWalletBalance = async () => { 
+	const connection = new Connection(url);
+	const wallet = useWallet();
+	const [balance, setBalance] = useState(0);
+	const setWalletBalance = async () => {
 		if (wallet?.publicKey) {
 			try {
 				const balance = await connection.getBalance(wallet.publicKey);
@@ -48,27 +53,30 @@ export function JupiterSwapModal(props: ModalProps) {
 			} catch (error) {
 				console.log(error);
 			}
-        }
-    }
+		}
+	}
+
 	useEffect(() => {
 		// Fetch token list from Jupiter API
+		setTokenLoading(true);
 		fetch(TOKEN_LIST_URL["mainnet-beta"])
 			.then((response) => {
-				console.log("deb");
-				response.json().then((tokens) => [
-					setTokens(tokens),
-				])
+				response.json().then((tokens) => {
+					console.log(tokens);
+					setAllTokens(tokens);
+					setTokens(tokens);
+				});
 			}).catch((error) => {
 				console.error(error);
+			}).finally(() => {
+				setTokenLoading(false);
 			});
 	}, []);
-	console.log("hello");
-	console.log(tokens);
-	console.log(tokens[0]?.logoURI);
-	const [inputMint,setInputMint] = useState<PublicKey>(
+	
+	const [inputMint, setInputMint] = useState<PublicKey>(
 		new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
 	);
-	const [outputMint,setOutputMint] = useState<PublicKey>(
+	const [outputMint, setOutputMint] = useState<PublicKey>(
 		new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
 	);
 
@@ -78,7 +86,7 @@ export function JupiterSwapModal(props: ModalProps) {
 		outputMint: new PublicKey(outputMint),
 		slippage: 0.1,
 	});
-    const [inputBalance, setInputBalance] = useState(0);
+	const [inputBalance, setInputBalance] = useState(0);
 	const [inputTokenInfo, outputTokenInfo] = useMemo(() => {
 		return [
 			tokenMap.get(formValue.inputMint?.toBase58() || ""),
@@ -90,25 +98,13 @@ export function JupiterSwapModal(props: ModalProps) {
 		return formValue.amount * 10 ** (inputTokenInfo?.decimals || 1);
 	}, [inputTokenInfo, formValue.amount]);
 
-	// const {
-	// 	routeMap,
-	// 	allTokenMints,
-	// 	routes,
-	// 	loading,
-	// 	exchange,
-	// 	error,
-	// 	refresh,
-	// 	lastRefreshTimestamp,
-	// } = useJupiter({
-	// 	...formValue,
-	// 	amount: amountInDecimal,
-	// });
-
 	// token search modal
 	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
-	
-	const setTokenValues = (token: any,type?: string) => {
-		if (tokenSearchType === 'pay' || type === 'pay') { 
+	const [tokenSearch, setTokenSearch] = useState("");
+	const [tokenSearchOptions, setTokenSearchOptions] = useState<Token[]>([]);
+
+	const setTokenValues = (token: any, type?: string) => {
+		if (tokenSearchType === 'pay' || type === 'pay') {
 			console.log("set input token");
 			console.log(token);
 			setFormValue((prevValue) => {
@@ -119,11 +115,11 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
 			// if (tokenExchangeAmount) {
-				setExchangeAmount(parseInt((inputBalance * (10 ** token?.decimals)).toString()) || 1);
+			setExchangeAmount(parseInt((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			// }
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
-		} else if(tokenSearchType === 'receive' || type === 'receive') {
+		} else if (tokenSearchType === 'receive' || type === 'receive') {
 			setFormValue((prevValue) => {
 				return {
 					...prevValue,
@@ -135,6 +131,23 @@ export function JupiterSwapModal(props: ModalProps) {
 		}
 		setShowTokenSearch(false);
 	};
+
+	const onTokenSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+		console.log('on token search change', event.target.value);
+		setTokenSearch(event.target.value);
+	}
+
+	useEffect(() => {
+		const options = allTokens.filter((token) => {
+			const searchLower = tokenSearch.toLowerCase();
+			return (
+				token.name.toLowerCase().includes(searchLower) ||
+				token.symbol.toLowerCase().includes(searchLower) ||
+				token.address.toLowerCase() === searchLower
+			);
+		})
+    setTokens(options);
+  }, [tokenSearch, allTokens]);
 
 	// aggregator search modal
 	const [showAggregatorSearch, setShowAggregatorSearch] =
@@ -187,7 +200,7 @@ export function JupiterSwapModal(props: ModalProps) {
 	};
 
 	const [showMore, setShowMore] = useState(false);
-    const jupiter = useJupiter({
+	const jupiter = useJupiter({
 		amount: exchangeAmount, // raw input amount of tokens
 		inputMint,
 		outputMint,
@@ -210,20 +223,20 @@ export function JupiterSwapModal(props: ModalProps) {
 	useEffect(() => {
 		if (routes) {
 			setDisplayRoutes(routes?.slice(0, 2));
-			setAdditionalRoutes(routes?.slice(2,routes.length));
+			setAdditionalRoutes(routes?.slice(2, routes.length));
 		}
 		setWalletBalance();
-	},[routes]);
+	}, [routes]);
 	console.log(routes);
 	console.log(routeMap);
 	console.log("hello");
-	const setTokenSearchValues = (type:any) => {
+	const setTokenSearchValues = (type: any) => {
 		setTokenSearchType(type);
 		setShowTokenSearch(true)
 	}
 	const getTokenSymbol = (tokenAddress: String) => {
 		let symbol = null
-		for (let i = 0; i < tokens.length; i++) { 
+		for (let i = 0; i < tokens.length; i++) {
 			if (tokens[i].address === tokenAddress) {
 				symbol = tokens[i].symbol
 				break;
@@ -231,15 +244,15 @@ export function JupiterSwapModal(props: ModalProps) {
 		}
 		return symbol;
 	}
-	const fetchSwapPath = (route:any) => {
+	const fetchSwapPath = (route: any) => {
 		const path: any[] = [];
-		route.marketInfos.forEach((item: any) => { 
+		route.marketInfos.forEach((item: any) => {
 			if (path.length === 0) {
 				path.push(getTokenSymbol(item.inputMint.toBase58()));
-			} 
-			if (path.length > 0 && path[path.length - 1] !== getTokenSymbol(item.inputMint.toBase58())) { 
+			}
+			if (path.length > 0 && path[path.length - 1] !== getTokenSymbol(item.inputMint.toBase58())) {
 				path.push(getTokenSymbol(item.inputMint.toBase58()));
-				
+
 			}
 			path.push(getTokenSymbol(item.outputMint.toBase58()));
 		});
@@ -249,12 +262,12 @@ export function JupiterSwapModal(props: ModalProps) {
 	const swapUserInputTokens = () => {
 		const swapInputToken = inputToken;
 		const swapOutputToken = outputToken;
-		setTokenValues(swapOutputToken,"pay");
-		setTokenValues(swapInputToken,"receive");
+		setTokenValues(swapOutputToken, "pay");
+		setTokenValues(swapInputToken, "receive");
 	}
 
 	const onClickSwapBestRoute = async () => {
-		if (routes &&  wallet.signAllTransactions && wallet.signTransaction) {
+		if (routes && wallet.signAllTransactions && wallet.signTransaction) {
 			const bestRoute = routes[0];
 			await exchange({
 				wallet: {
@@ -263,7 +276,7 @@ export function JupiterSwapModal(props: ModalProps) {
 					signAllTransactions: wallet.signAllTransactions,
 					signTransaction: wallet.signTransaction,
 				},
-				routeInfo: bestRoute,  
+				routeInfo: bestRoute,
 				onTransaction: async (txid: any) => {
 					console.log("sending transaction");
 					await connection.confirmTransaction(txid);
@@ -377,7 +390,10 @@ export function JupiterSwapModal(props: ModalProps) {
 							<div className="card-header d-flex justify-content-between">
 								<div className="d-flex align-items-center token-input-box">
 									<span className="fe fe-search me-3"></span>
-									<input className="form-control me-1" placeholder="Search by token or paste address"></input>
+									<input className="form-control me-1"
+												 placeholder="Search by token or paste address"
+												 value={tokenSearch}
+												 onChange={onTokenSearchChange}></input>
 								</div>
 								<div>
 									<span
@@ -386,23 +402,31 @@ export function JupiterSwapModal(props: ModalProps) {
 								</div>
 							</div>
 
-							<div className="card-body token-search-body d-flex flex-wrap">
-								{tokens.map(token => {
+							<div className="token-search-body col">
+								{tokenLoading ? (
+									<div className="p-5 text-center w-100">
+										<span>Loading...</span>
+									</div>
+								) : (tokens.length > 0 ? tokens.map(token => {
 									return (
 										<button
-											className="rounded-3 p-3 d-flex token-container me-3"
+											className="p-4 d-flex align-items-center token-container w-100"
 											key={token.address}
 											onClick={() => setTokenValues(token)}
-											>
+										>
 											<div className="me-3">
 												<img
 													className="token-logo rounded-circle"
-													src={token.logoURI}></img>
+													src={token.logoURI}
+													alt={token.symbol}></img>
 											</div>
-											<div className="token-symbol">{token.symbol}</div>
+											<div className="d-flex flex-column align-items-start">
+												<div className="token-symbol">{token.symbol}</div>
+												<div className="token-name opacity-text">{token.name}</div>
+											</div>
 										</button>
 									)
-								})}
+								}) : "No tokens found")}
 							</div>
 						</div>
 					) : null}
@@ -416,8 +440,8 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="fs-7 d-flex">
 									<div className="fs-7 d-flex justify-content-center align-items-center"> Balance: {balance}</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount(parseInt(((inputBalance/2) * (10 ** inputToken?.decimals)).toString()) || 1);
-										setInputBalance(parseInt((inputBalance/2 - 0.05).toString()))
+										setExchangeAmount(parseInt(((inputBalance / 2) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setInputBalance(parseInt((inputBalance / 2 - 0.05).toString()))
 									}}>HALF</div>
 									<div className="input-balance-reset-button" onClick={() => {
 										setExchangeAmount(parseInt(((balance) * (10 ** inputToken?.decimals)).toString()) || 1);
@@ -433,22 +457,19 @@ export function JupiterSwapModal(props: ModalProps) {
 										onClick={() => setTokenSearchValues("pay")}>
 										<div className="me-2 selected-token">
 											{inputToken?.logoURI && (
-                                              <img src={inputToken?.logoURI} alt="input-token"
-											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
+												<img src={inputToken?.logoURI} alt="input-token"
+													style={{ width: "30px", height: "30px", borderRadius: "50%" }}></img>
 											)}
-												{inputToken?.symbol ? (` ${inputToken?.symbol}`): "Select Token"}
+											{inputToken?.symbol ? (` ${inputToken?.symbol}`) : "Select Token"}
 											{/* {formValue.inputMint?.toBase58()} */}
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
 									</button>
-									<div 
- 										className="d-flex align-items-center w-100 justify-content-end">
+									<div
+										className="d-flex align-items-center w-100 justify-content-end">
 										{inputBalance}
 									</div>
-									
-									{/* <div className="text-right" style={{backgroundColor: "red"}}>
-										<input className="form-control"></input>
-									</div> */}
+
 								</div>
 								<div className="d-flex align-items-center ms-4">
 									<div className="fe fe-alert-circle me-2"></div>
@@ -459,7 +480,7 @@ export function JupiterSwapModal(props: ModalProps) {
 							</div>
 						</div>
 
-						<div className="switch mx-auto mt-4 mb-4" onClick={()=>swapUserInputTokens()}>
+						<div className="switch mx-auto mt-4 mb-4" onClick={() => swapUserInputTokens()}>
 							<button className="rounded-circle d-flex justify-content-center align-items-center">
 								<div className="fe fe-minimize-2"></div>
 							</button>
@@ -477,81 +498,73 @@ export function JupiterSwapModal(props: ModalProps) {
 									<button
 										className="d-flex align-items-center"
 										onClick={() => setTokenSearchValues("receive")}>
-										{/* <div><img src={}></img></div> */}
 										<div className="me-2 selected-token">
-										   {outputToken?.logoURI && (
-                                              <img src={outputToken?.logoURI} alt="input-token"
-											  style={{width: "30px", height: "30px", borderRadius:"50%"}}></img>
+											{outputToken?.logoURI && (
+												<img src={outputToken?.logoURI} alt="input-token"
+													style={{ width: "30px", height: "30px", borderRadius: "50%" }}></img>
 											)}
-											{outputToken?.symbol ? (` ${outputToken?.symbol}`): "Select Token"}
-                                            
+											{outputToken?.symbol ? (` ${outputToken?.symbol}`) : "Select Token"}
+
 										</div>
 										<div className="fe fe-chevron-down opacity-text"></div>
 									</button>
-									{/* <div className="text-right">
-										<input className="form-control"></input>
-									</div> */}
 								</div>
 							</div>
 						</div>
 
 						<div className="d-flex flex-column">
 							<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
-							  <div style={{color: "#909593"}}>{routes?.length} routes found!</div>
+								<div style={{ color: "#909593" }}>{routes?.length} routes found!</div>
 							</div>
 							{showMore ? (<div className="routes-container">
 								{routes?.map((route, index) => {
 									return (
-                                <div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
-									<div className="d-flex flex-column ps-2">
-											<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
-										<div className="opacity-text fs-5 d-flex">
-											{fetchSwapPath(route).map((pathName,index) => { 
-												return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
-											})}
+										<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
+											<div className="d-flex flex-column ps-2">
+												<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
+												<div className="opacity-text fs-5 d-flex">
+													{fetchSwapPath(route).map((pathName, index) => {
+														return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
+													})}
+												</div>
+											</div>
+											<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
 										</div>
-									</div>
-											<div className="fs-3">{route?.outAmount/LAMPORTS_PER_SOL}</div>
-								</div>
 									);
-								 })}
+								})}
 							</div>
 							) : (
 								<div>
-								{displayRoutes?.map((route, index) => {
-									return (
-                                <div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
-									<div className="d-flex flex-column ps-2">
-												<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
-										<div className="opacity-text fs-5 d-flex">
-											{fetchSwapPath(route).map((pathName,index) => { 
-												return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
-											})}
-										</div>
-									</div>
-									<div className="fs-3">{route?.outAmount/LAMPORTS_PER_SOL}</div>
+									{displayRoutes?.map((route, index) => {
+										return (
+											<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
+												<div className="d-flex flex-column ps-2">
+													<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
+													<div className="opacity-text fs-5 d-flex">
+														{fetchSwapPath(route).map((pathName, index) => {
+															return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
+														})}
+													</div>
+												</div>
+												<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
+											</div>
+										);
+									})}
+
 								</div>
-									);
-								 })}
-								
-							</div>
-								)}
+							)}
 							<div className="d-flex justify-content-between mt-3">
 								<button className="d-flex align-items-center more-btn opacity-text" data-bs-toggle="collapse" data-bs-target="#moreRoutes" aria-expanded="false" aria-controls="moreRoutes"
-												onClick={() => setShowMore(prevValue => !prevValue)}>
+									onClick={() => setShowMore(prevValue => !prevValue)}>
 									<div className={`chevron ${showMore ? "rotate" : ""}`}>
 										<span className="fe fe-chevron-down"></span>
 									</div>
 									{showMore ? <span className="ms-3 fs-5">Show less</span> : <span className="ms-3 fs-5">More</span>}
-									
+
 								</button>
-								<div className="opacity-text fs-5 d-flex justify-content-end align-items-center" style={{minWidth:"70%",width:"auto"}}>from {routes && routes[routes.length - 1]?.outAmount/LAMPORTS_PER_SOL} to {routes && routes[0]?.outAmount/LAMPORTS_PER_SOL}</div>	
+								<div className="opacity-text fs-5 d-flex justify-content-end align-items-center" style={{ minWidth: "70%", width: "auto" }}>from {routes && routes[routes.length - 1]?.outAmount / LAMPORTS_PER_SOL} to {routes && routes[0]?.outAmount / LAMPORTS_PER_SOL}</div>
 							</div>
-							<div className="collapse" id="moreRoutes">
-								{/* <div className="card card-body">
-									Some placeholder content for the collapse component. This panel is hidden by default but revealed when the user activates the relevant trigger.
-								</div> */}
-							</div>
+							<div className="collapse" id="moreRoutes"></div>
 
 
 						</div>
@@ -559,9 +572,9 @@ export function JupiterSwapModal(props: ModalProps) {
 				</div>
 				<button className="w-100 mt-3 rounded-3 py-3 border-gradient">
 					<div className="w-100 border-gradient-div"></div>
-					<div className="w-100 d-flex justify-content-center align-items-center border-gradient-text" onClick={()=> onClickSwapBestRoute()}>Swap</div>
+					<div className="w-100 d-flex justify-content-center align-items-center border-gradient-text" onClick={() => onClickSwapBestRoute()}>Swap</div>
 				</button>
 			</Modal.Body>
-			</Modal>
+		</Modal>
 	);
 }

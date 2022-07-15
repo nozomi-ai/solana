@@ -39,16 +39,26 @@ $cyan: #71E5EDE0;
 }
 
 .token-search-card {
-  max-width: 500px;
+  max-width: 480px;
 }
 
 .token-search-body {
-  row-gap: 6px;
+  overflow: auto;
+  max-height: 600px;
+
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: $dark-gray;
+    border-radius: 2rem;
+  }
 }
 
 .token-container {
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background-color: $light-gray;
+  background: none;
+  border: none;
 
   &:hover {
     cursor: pointer;
@@ -56,8 +66,8 @@ $cyan: #71E5EDE0;
   }
 
   .token-logo {
-    width: 20px;
-    height: 20px;
+    width: 30px;
+    height: 30px;
   }
 
   .token-symbol {
@@ -121,10 +131,8 @@ $cyan: #71E5EDE0;
 // to hide scrollbar for <input type="number">
 input::-webkit-outer-spin-button,
 input::-webkit-inner-spin-button {
-  /* display: none; <- Crashes Chrome on hover */
   -webkit-appearance: none;
   margin: 0;
-  /* <-- Apparently some margin are still there even though it's hidden */
 }
 
 input[type=number] {
