@@ -72,18 +72,14 @@ export function JupiterSwapModal(props: ModalProps) {
 				setTokenLoading(false);
 			});
 	}, []);
-	
-	const [inputMint, setInputMint] = useState<PublicKey>(
-		new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v")
-	);
-	const [outputMint, setOutputMint] = useState<PublicKey>(
-		new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB")
-	);
+
+	const [inputMint, setInputMint] = useState<PublicKey | undefined>(undefined);
+	const [outputMint, setOutputMint] = useState<PublicKey | undefined>(undefined);
 
 	const [formValue, setFormValue] = useState<UseJupiterProps>({
 		amount: 1 * 10 ** 6, // unit in lamports (Decimals)
-		inputMint: new PublicKey(inputMint),
-		outputMint: new PublicKey(outputMint),
+		inputMint: inputMint ? new PublicKey(inputMint) : undefined,
+		outputMint: outputMint ? new PublicKey(outputMint) : undefined,
 		slippage: 0.1,
 	});
 	const [inputBalance, setInputBalance] = useState(0);
@@ -133,7 +129,6 @@ export function JupiterSwapModal(props: ModalProps) {
 	};
 
 	const onTokenSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-		console.log('on token search change', event.target.value);
 		setTokenSearch(event.target.value);
 	}
 
@@ -146,8 +141,8 @@ export function JupiterSwapModal(props: ModalProps) {
 				token.address.toLowerCase() === searchLower
 			);
 		})
-    setTokens(options);
-  }, [tokenSearch, allTokens]);
+		setTokens(options);
+	}, [tokenSearch, allTokens]);
 
 	// aggregator search modal
 	const [showAggregatorSearch, setShowAggregatorSearch] =
@@ -391,9 +386,9 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="d-flex align-items-center token-input-box">
 									<span className="fe fe-search me-3"></span>
 									<input className="form-control me-1"
-												 placeholder="Search by token or paste address"
-												 value={tokenSearch}
-												 onChange={onTokenSearchChange}></input>
+										placeholder="Search by token or paste address"
+										value={tokenSearch}
+										onChange={onTokenSearchChange}></input>
 								</div>
 								<div>
 									<span
@@ -512,62 +507,71 @@ export function JupiterSwapModal(props: ModalProps) {
 							</div>
 						</div>
 
-						<div className="d-flex flex-column">
-							<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
-								<div style={{ color: "#909593" }}>{routes?.length} routes found!</div>
-							</div>
-							{showMore ? (<div className="routes-container">
-								{routes?.map((route, index) => {
-									return (
-										<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
-											<div className="d-flex flex-column ps-2">
-												<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
-												<div className="opacity-text fs-5 d-flex">
-													{fetchSwapPath(route).map((pathName, index) => {
-														return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
-													})}
-												</div>
-											</div>
-											<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
+						{inputMint && outputMint ?
+							(loading ?
+								(<div className="w-100 text-center mt-4 p-2">
+									<span>Loading routes...</span>
+								</div>) :
+								(displayRoutes.length ? (
+									<div className="d-flex flex-column">
+										<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
+											<div style={{ color: "#909593" }}>{routes?.length} routes found!</div>
 										</div>
-									);
-								})}
-							</div>
-							) : (
-								<div>
-									{displayRoutes?.map((route, index) => {
-										return (
-											<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
-												<div className="d-flex flex-column ps-2">
-													<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
-													<div className="opacity-text fs-5 d-flex">
-														{fetchSwapPath(route).map((pathName, index) => {
-															return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
-														})}
+										{showMore ? (<div className="routes-container">
+											{routes?.map((route, index) => {
+												return (
+													<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
+														<div className="d-flex flex-column ps-2">
+															<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
+															<div className="opacity-text fs-5 d-flex">
+																{fetchSwapPath(route).map((pathName, index) => {
+																	return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
+																})}
+															</div>
+														</div>
+														<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
 													</div>
-												</div>
-												<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
+												);
+											})}
+										</div>
+										) : (
+											<div>
+												{displayRoutes?.map((route, index) => {
+													return (
+														<div className="route-container d-flex justify-content-between align-items-center px-3 rounded-3 mt-2">
+															<div className="d-flex flex-column ps-2">
+																<div className="mb-1 fs-5">{route?.marketInfos[0]?.amm?.label} x {route?.marketInfos[1]?.amm?.label}</div>
+																<div className="opacity-text fs-5 d-flex">
+																	{fetchSwapPath(route).map((pathName, index) => {
+																		return <div>{pathName} {index !== route?.marketInfos.length && '→ '} </div>
+																	})}
+																</div>
+															</div>
+															<div className="fs-3">{route?.outAmount / LAMPORTS_PER_SOL}</div>
+														</div>
+													);
+												})}
+
 											</div>
-										);
-									})}
-
-								</div>
-							)}
-							<div className="d-flex justify-content-between mt-3">
-								<button className="d-flex align-items-center more-btn opacity-text" data-bs-toggle="collapse" data-bs-target="#moreRoutes" aria-expanded="false" aria-controls="moreRoutes"
-									onClick={() => setShowMore(prevValue => !prevValue)}>
-									<div className={`chevron ${showMore ? "rotate" : ""}`}>
-										<span className="fe fe-chevron-down"></span>
+										)}
+										<div className="d-flex justify-content-between mt-3 text-right">
+											{additionalRoutes.length ? (<button className="d-flex align-items-center more-btn opacity-text" data-bs-toggle="collapse" data-bs-target="#moreRoutes" aria-expanded="false" aria-controls="moreRoutes"
+												onClick={() => setShowMore(prevValue => !prevValue)}>
+												<div className={`chevron ${showMore ? "rotate" : ""}`}>
+													<span className="fe fe-chevron-down"></span>
+												</div>
+												{showMore ? <span className="ms-3 fs-5">Show less</span> : <span className="ms-3 fs-5">More</span>}
+											</button>) : (<div></div>)}
+											<div className="opacity-text fs-5 d-flex justify-content-end align-items-center" style={{ minWidth: "70%", width: "auto" }}>from {routes && routes[routes.length - 1]?.outAmount / LAMPORTS_PER_SOL} to {routes && routes[0]?.outAmount / LAMPORTS_PER_SOL}</div>
+										</div>
+										{/* <div className="collapse" id="moreRoutes"></div> */}
 									</div>
-									{showMore ? <span className="ms-3 fs-5">Show less</span> : <span className="ms-3 fs-5">More</span>}
+								) : (
+									<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
+										<div style={{ color: "#909593" }}>0 routes found</div>
+									</div>
+								))) : null}
 
-								</button>
-								<div className="opacity-text fs-5 d-flex justify-content-end align-items-center" style={{ minWidth: "70%", width: "auto" }}>from {routes && routes[routes.length - 1]?.outAmount / LAMPORTS_PER_SOL} to {routes && routes[0]?.outAmount / LAMPORTS_PER_SOL}</div>
-							</div>
-							<div className="collapse" id="moreRoutes"></div>
-
-
-						</div>
 					</div>
 				</div>
 				<button className="w-100 mt-3 rounded-3 py-3 border-gradient">
