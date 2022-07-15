@@ -3,6 +3,8 @@ $medium-gray: #272C2B;
 $dark-gray: #1B1E1D;
 $purple: #9945FF;
 $cyan: #71E5EDE0;
+$gradient-purple: rgba(151, 71, 255, .3);
+$gradient-cyan: rgba(51, 163, 130, .3);
 
 .jupiter-modal-container {
   max-width: 520px;
@@ -36,6 +38,23 @@ $cyan: #71E5EDE0;
 .aggregator-card {
   top: 3%;
   max-width: 380px;
+}
+
+.aggregator-search-body {
+  padding: 0
+}
+
+.selected-aggregator {
+  background-color: $purple;
+
+  &:hover {
+    cursor: pointer;
+  }
+}
+
+.aggregator-option:hover {
+  cursor: pointer;
+  background-image: linear-gradient(to right, $gradient-purple, $gradient-cyan);
 }
 
 .token-search-card {

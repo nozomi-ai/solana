@@ -27,6 +27,18 @@ interface SlippageOption {
 	isSelected: boolean;
 }
 
+interface Aggregator {
+	name: string;
+	logo: string;
+}
+
+const aggregators: Array<Aggregator> = [
+	{
+		name: "Jupiter Finance",
+		logo: "/img/logos-aggregator/jupiter.svg"
+	}
+]
+
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
 export function JupiterSwapModal(props: ModalProps) {
@@ -147,6 +159,21 @@ export function JupiterSwapModal(props: ModalProps) {
 	// aggregator search modal
 	const [showAggregatorSearch, setShowAggregatorSearch] =
 		useState<boolean>(false);
+	const [aggregator, setAggregator] = useState<Aggregator | null>(null);
+	const [aggregatorOptions, setAggregatorOptions] = useState<Array<Aggregator>>(aggregators);
+	const [aggregatorSearch, setAggregatorSearch] = useState("");
+
+	const onAggregatorSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+		setAggregatorSearch(event.target.value);
+	}
+
+	useEffect(() => {
+		const options = aggregators.filter((aggregator) => {
+			const searchLower = aggregatorSearch.toLowerCase();
+			return aggregator.name.toLowerCase().includes(searchLower);
+		})
+		setAggregatorOptions(options);
+	}, [aggregatorSearch]);
 
 	// slippage settings modal
 	const [showSlippageSettings, setShowSlippageSettings] =
@@ -288,6 +315,18 @@ export function JupiterSwapModal(props: ModalProps) {
 			<Modal.Body>
 				<div className="jupiter-modal">
 					<div className="d-flex mb-3">
+						{aggregator ? (
+						<div className="d-flex justify-content-between align-items-center p-3 me-4 w-100 selected-aggregator rounded-3"
+								 onClick={() => setShowAggregatorSearch(true)}>
+							<div className="w-100 d-flex align-items-center">
+								<img className="me-3" src={aggregator.logo} alt={aggregator.name} width="25"></img>
+								<div><span>{aggregator.name}</span></div>
+							</div>
+							<div>
+								<span className="fe fe-align-justify" style={{fontSize: "16px"}}></span>
+							</div>
+						</div>
+						) : (
 						<div
 							className="d-flex justify-content-between align-items-center p-3 me-4 w-100"
 							onClick={() => setShowAggregatorSearch(true)}>
@@ -295,7 +334,7 @@ export function JupiterSwapModal(props: ModalProps) {
 							<div className="border-left">
 								<span className="fe fe-search ps-3"></span>
 							</div>
-						</div>
+						</div>)}
 						<button
 							className="d-flex align-items-center slippage-setting-btn p-3 rounded-3 opacity-text"
 							onClick={() => setShowSlippageSettings(true)}>
@@ -307,9 +346,11 @@ export function JupiterSwapModal(props: ModalProps) {
 					{showAggregatorSearch ? (
 						<div className="card aggregator-card">
 							<div className="card-header d-flex justify-content-between">
-								<div className="d-flex align-items-center token-input-box">
+								<div className="d-flex align-items-center">
 									<span className="fe fe-search me-3"></span>
-									<input className="form-control me-1" placeholder=""></input>
+									<input className="form-control me-1"
+										value={aggregatorSearch}
+										onChange={onAggregatorSearchChange}></input>
 								</div>
 								<div>
 									<span
@@ -318,7 +359,24 @@ export function JupiterSwapModal(props: ModalProps) {
 								</div>
 							</div>
 
-							<div className="card-body">
+							<div className="card-body aggregator-search-body">
+								{aggregatorOptions.length ? aggregatorOptions.map((aggregator, idx) => {
+									return (
+										<div className="w-100 d-flex align-items-center p-3 aggregator-option"
+												 key={idx}
+												 onClick={() => {
+												 	setAggregator(aggregator);
+												 	setShowAggregatorSearch(false);}}>
+											<img className="aggregator-logo me-3" src={aggregator.logo} alt={aggregator.name}
+													 width="25"></img>
+											<div><span>{aggregator.name}</span></div>
+										</div>
+									)
+								}) : (
+								<div className="w-100 text-center py-3">
+									<span>No result found</span>
+								</div>)}
+								<div style={{height: "15px", borderTop: "1px solid #282d2b"}}></div>
 							</div>
 						</div>
 					) : null}
@@ -507,7 +565,7 @@ export function JupiterSwapModal(props: ModalProps) {
 							</div>
 						</div>
 
-						{inputMint && outputMint ?
+						{inputMint && outputMint && aggregator ?
 							(loading ?
 								(<div className="w-100 text-center mt-4 p-2">
 									<span>Loading routes...</span>
