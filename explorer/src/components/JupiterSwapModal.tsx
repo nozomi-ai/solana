@@ -64,16 +64,12 @@ export function JupiterSwapModal(props: ModalProps) {
 	const setWalletBalance = async (tokenAddress:string,type:string) => {
 		if (wallet?.publicKey) {
 			try {
-				console.log(allTokens);
-				console.log(tokenRegistry.get(tokenAddress));
 				
-				// console.log(balance);
 				const info = await connection.getParsedTokenAccountsByOwner(wallet.publicKey, {
 				   mint:new PublicKey(tokenAddress),
 				},
 				);
 				const balance = info.value[0].account.data.parsed.info.tokenAmount.uiAmount;
-				console.log("balance", balance);
 				if (type === "pay") {
 					setBalance(balance);
 				    if ((balance) - 0.00001 > 0) {
@@ -92,12 +88,10 @@ export function JupiterSwapModal(props: ModalProps) {
 
 	useEffect(() => {
 		// Fetch token list from Jupiter API
-		console.log(info);
 		setTokenLoading(true);
 		fetch(TOKEN_LIST_URL["mainnet-beta"])
 			.then((response) => {
 				response.json().then((tokens) => {
-					console.log(tokens);
 					setAllTokens(tokens);
 					setTokens(tokens);
 				});
@@ -136,8 +130,6 @@ export function JupiterSwapModal(props: ModalProps) {
 
 	const setTokenValues = (token: any, type?: string) => {
 		if (tokenSearchType === 'pay' || type === 'pay') {
-			console.log("set input token");
-			console.log(token);
 			setFormValue((prevValue) => {
 				return {
 					...prevValue,
@@ -253,9 +245,7 @@ export function JupiterSwapModal(props: ModalProps) {
 		outputMint,
 		slippage: 1, // 1% slippage
 		debounceTime: 250, // debounce ms time before refresh
-	})
-	console.log(inputMint);
-	console.log(outputMint);
+	});
 	const {
 		allTokenMints, // all the token mints that is possible to be input
 		routeMap, // routeMap, same as the one in @jup-ag/core
@@ -266,7 +256,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		routes, // all the routes from inputMint to outputMint
 		error,
 	} = jupiter;
-	console.log(routes);
 	useEffect(() => {
 		if (routes) {
 			setDisplayRoutes(routes?.slice(0, 2));
@@ -274,9 +263,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		}
 		
 	}, [routes]);
-	console.log(routes);
-	console.log(routeMap);
-	console.log("hello");
 	const setTokenSearchValues = (type: any) => {
 		setTokenSearchType(type);
 		setShowTokenSearch(true)
@@ -293,12 +279,9 @@ export function JupiterSwapModal(props: ModalProps) {
 	}
 	const fetchSwapPath = (route: any) => {
 		const path: any[] = [];
-		console.log(route);
-		console.log("hello")
 		route.marketInfos.forEach((item: any) => {
 			if (path.length === 0) {
-				const tokenSymbol = getTokenSymbol(item.inputMint.toBase58())
-				console.log(tokenSymbol)
+				const tokenSymbol = getTokenSymbol(item.inputMint.toBase58());
 				path.push(tokenSymbol);
 			}
 			if (path.length > 0 && path[path.length - 1] !== getTokenSymbol(item.inputMint.toBase58())) {
@@ -306,7 +289,6 @@ export function JupiterSwapModal(props: ModalProps) {
 			}
 			path.push(getTokenSymbol(item.outputMint.toBase58()));
 		});
-		// console.log(path);
 		return path;
 	}
 	const swapUserInputTokens = () => {
@@ -328,9 +310,7 @@ export function JupiterSwapModal(props: ModalProps) {
 				},
 				routeInfo: bestRoute,
 				onTransaction: async (txid: any) => {
-					console.log("sending transaction");
 					await connection.confirmTransaction(txid);
-					console.log("confirmed transaction");
 					return await connection.getTransaction(txid, {
 						commitment: "confirmed",
 					});
