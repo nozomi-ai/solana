@@ -59,24 +59,30 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [balance, setBalance] = useState(0);
 	const info = useAccountInfo(wallet.publicKey?.toBase58());
 	const { tokenRegistry } = useTokenRegistry();
+	const [recieveTokenBalance,setRecieveTokenBalance] = useState(0);
 
-	const setWalletBalance = async () => {
+	const setWalletBalance = async (tokenAddress:string,type:string) => {
 		if (wallet?.publicKey) {
 			try {
 				console.log(allTokens);
-				console.log(tokenRegistry.get('9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E'));
-				const balance = await connection.getBalance(wallet.publicKey);
-				console.log(balance);
-				const info = await connection.getTokenAccountsByOwner(wallet.publicKey, {
-				   mint:new PublicKey('9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E'),	
-				}
-			 );
-				console.log("balance", info);
-				setBalance(balance / LAMPORTS_PER_SOL);
-				if ((balance / LAMPORTS_PER_SOL) - 0.02 > 0) {
-					setInputBalance(balance / LAMPORTS_PER_SOL - 0.02);
-				} else {
-					setInputBalance(0);
+				console.log(tokenRegistry.get(tokenAddress));
+				
+				// console.log(balance);
+				const info = await connection.getParsedTokenAccountsByOwner(wallet.publicKey, {
+				   mint:new PublicKey(tokenAddress),
+				},
+				);
+				const balance = info.value[0].account.data.parsed.info.tokenAmount.uiAmount;
+				console.log("balance", balance);
+				if (type === "pay") {
+					setBalance(balance);
+				    if ((balance) - 0.00001 > 0) {
+					   setInputBalance(balance - 0.00001);
+				    } else {
+					  setInputBalance(0);
+				   }
+				} else if (type === "receive") {
+				    setRecieveTokenBalance(balance);	
 				}
 			} catch (error) {
 				console.log(error);
@@ -140,7 +146,8 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
 			// if (tokenExchangeAmount) {
-			setExchangeAmount(parseInt((inputBalance * (10 ** token?.decimals)).toString()) || 1);
+			setWalletBalance(token.address,"pay");
+			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			// }
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
@@ -151,6 +158,7 @@ export function JupiterSwapModal(props: ModalProps) {
 					outputMint: new PublicKey(token.address),
 				};
 			});
+			setWalletBalance(token.address,"receive");
 			setOutputMint(new PublicKey(token.address));
 			setOutputToken(token);
 		}
@@ -264,7 +272,7 @@ export function JupiterSwapModal(props: ModalProps) {
 			setDisplayRoutes(routes?.slice(0, 2));
 			setAdditionalRoutes(routes?.slice(2, routes.length));
 		}
-		setWalletBalance();
+		
 	}, [routes]);
 	console.log(routes);
 	console.log(routeMap);
@@ -328,6 +336,13 @@ export function JupiterSwapModal(props: ModalProps) {
 					});
 				},
 			});
+			setInputBalance(0);
+			setRecieveTokenBalance(0);
+			setExchangeAmount(0);
+			setInputToken(null);
+			setOutputToken(null);
+			setDisplayRoutes([]);
+			setBalance(0);
 		}
 	}
 	return (
@@ -513,14 +528,14 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="fs-7 d-flex">
 									<div className="fs-7 d-flex justify-content-center align-items-center"> Balance: {balance}</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										const swapBalance = inputBalance;
-				
-										setExchangeAmount(parseInt(((inputBalance / 2) * (10 ** inputToken?.decimals)).toString()) || 1);
-										setInputBalance(parseInt((inputBalance / 2).toString()))
+									  if ((inputBalance/2) > 0.00001) {
+											setExchangeAmount(parseFloat(((inputBalance / 2) * (10 ** inputToken?.decimals)).toString()) || 1);
+											setInputBalance(parseFloat((inputBalance / 2).toString()))
+									  }
 									}}>HALF</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount(parseInt(((balance-0.02) * (10 ** inputToken?.decimals)).toString()) || 1);
-										setInputBalance(parseInt((balance - 0.02).toString()))
+										setExchangeAmount(parseFloat(((balance-0.00001) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setInputBalance(parseFloat((balance - 0.00001).toString()))
 									}
 									}>MAX</div>
 								</div>
@@ -566,7 +581,7 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="">
 									<span>You receive</span>
 								</div>
-								<div className="fs-7">Balance: 0</div>
+								<div className="fs-7">Balance: {recieveTokenBalance}</div>
 							</div>
 							<div className="d-flex flex-column">
 								<div className="d-flex justify-content-between mb-2 rounded-3 p-4 token-search-btn-container">
