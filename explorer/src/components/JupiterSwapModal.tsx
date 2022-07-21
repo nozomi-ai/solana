@@ -11,7 +11,8 @@ import { Connection } from "@solana/web3.js";
 import dynamic from "next/dynamic";
 const BrowserReactSelect = dynamic(() => import("react-select"), { ssr: false })
 import { InputActionMeta, ActionMeta, ValueType } from "react-select";
-
+import { useAccountInfo } from "src/providers/accounts";
+import { useTokenRegistry } from "src/providers/mints/token-registry";
 export interface Token {
 	chainId: number; // 101,
 	address: string; // "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -56,12 +57,27 @@ export function JupiterSwapModal(props: ModalProps) {
 	const connection = new Connection(url);
 	const wallet = useWallet();
 	const [balance, setBalance] = useState(0);
+	const info = useAccountInfo(wallet.publicKey?.toBase58());
+	const { tokenRegistry } = useTokenRegistry();
+
 	const setWalletBalance = async () => {
 		if (wallet?.publicKey) {
 			try {
+				console.log(allTokens);
+				console.log(tokenRegistry.get('9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E'));
 				const balance = await connection.getBalance(wallet.publicKey);
+				console.log(balance);
+				const info = await connection.getTokenAccountsByOwner(wallet.publicKey, {
+				   mint:new PublicKey('9n4nbM75f5Ui33ZbPYXn59EwSgE8CGsHtAeTH5YFeJ9E'),	
+				}
+			 );
+				console.log("balance", info);
 				setBalance(balance / LAMPORTS_PER_SOL);
-				setInputBalance(balance / LAMPORTS_PER_SOL - 0.05);
+				if ((balance / LAMPORTS_PER_SOL) - 0.02 > 0) {
+					setInputBalance(balance / LAMPORTS_PER_SOL - 0.02);
+				} else {
+					setInputBalance(0);
+				}
 			} catch (error) {
 				console.log(error);
 			}
@@ -70,6 +86,7 @@ export function JupiterSwapModal(props: ModalProps) {
 
 	useEffect(() => {
 		// Fetch token list from Jupiter API
+		console.log(info);
 		setTokenLoading(true);
 		fetch(TOKEN_LIST_URL["mainnet-beta"])
 			.then((response) => {
@@ -241,7 +258,7 @@ export function JupiterSwapModal(props: ModalProps) {
 		routes, // all the routes from inputMint to outputMint
 		error,
 	} = jupiter;
-	// console.log(allTokenMints);
+	console.log(routes);
 	useEffect(() => {
 		if (routes) {
 			setDisplayRoutes(routes?.slice(0, 2));
@@ -258,9 +275,9 @@ export function JupiterSwapModal(props: ModalProps) {
 	}
 	const getTokenSymbol = (tokenAddress: String) => {
 		let symbol = null
-		for (let i = 0; i < tokens.length; i++) {
-			if (tokens[i].address === tokenAddress) {
-				symbol = tokens[i].symbol
+		for (let i = 0; i < allTokens.length; i++) {
+			if (allTokens[i].address === tokenAddress) {
+				symbol = allTokens[i].symbol
 				break;
 			}
 		}
@@ -268,13 +285,16 @@ export function JupiterSwapModal(props: ModalProps) {
 	}
 	const fetchSwapPath = (route: any) => {
 		const path: any[] = [];
+		console.log(route);
+		console.log("hello")
 		route.marketInfos.forEach((item: any) => {
 			if (path.length === 0) {
-				path.push(getTokenSymbol(item.inputMint.toBase58()));
+				const tokenSymbol = getTokenSymbol(item.inputMint.toBase58())
+				console.log(tokenSymbol)
+				path.push(tokenSymbol);
 			}
 			if (path.length > 0 && path[path.length - 1] !== getTokenSymbol(item.inputMint.toBase58())) {
 				path.push(getTokenSymbol(item.inputMint.toBase58()));
-
 			}
 			path.push(getTokenSymbol(item.outputMint.toBase58()));
 		});
@@ -493,12 +513,14 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="fs-7 d-flex">
 									<div className="fs-7 d-flex justify-content-center align-items-center"> Balance: {balance}</div>
 									<div className="input-balance-reset-button" onClick={() => {
+										const swapBalance = inputBalance;
+				
 										setExchangeAmount(parseInt(((inputBalance / 2) * (10 ** inputToken?.decimals)).toString()) || 1);
-										setInputBalance(parseInt((inputBalance / 2 - 0.05).toString()))
+										setInputBalance(parseInt((inputBalance / 2).toString()))
 									}}>HALF</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount(parseInt(((balance) * (10 ** inputToken?.decimals)).toString()) || 1);
-										setInputBalance(parseInt((balance - 0.05).toString()))
+										setExchangeAmount(parseInt(((balance-0.02) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setInputBalance(parseInt((balance - 0.02).toString()))
 									}
 									}>MAX</div>
 								</div>
