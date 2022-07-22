@@ -2,16 +2,12 @@
 /* eslint-disable @next/next/no-img-element */
 import { TOKEN_LIST_URL, useJupiter, JupiterProvider } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
-import { ChangeEvent, useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
-import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import { Connection } from "@solana/web3.js";
+import { useWallet } from "@solana/wallet-adapter-react";
+import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import dynamic from "next/dynamic";
-const BrowserReactSelect = dynamic(() => import("react-select"), { ssr: false })
-import { InputActionMeta, ActionMeta, ValueType } from "react-select";
-import { useAccountInfo } from "src/providers/accounts";
 import { useTokenRegistry } from "src/providers/mints/token-registry";
 export interface Token {
 	chainId: number; // 101,
@@ -57,14 +53,12 @@ export function JupiterSwapModal(props: ModalProps) {
 	const connection = new Connection(url);
 	const wallet = useWallet();
 	const [balance, setBalance] = useState(0);
-	const info = useAccountInfo(wallet.publicKey?.toBase58());
 	const { tokenRegistry } = useTokenRegistry();
 	const [recieveTokenBalance,setRecieveTokenBalance] = useState(0);
 
 	const setWalletBalance = async (tokenAddress:string,type:string) => {
 		if (wallet?.publicKey) {
 			try {
-				
 				const info = await connection.getParsedTokenAccountsByOwner(wallet.publicKey, {
 				   mint:new PublicKey(tokenAddress),
 				},
@@ -261,7 +255,6 @@ export function JupiterSwapModal(props: ModalProps) {
 			setDisplayRoutes(routes?.slice(0, 2));
 			setAdditionalRoutes(routes?.slice(2, routes.length));
 		}
-		
 	}, [routes]);
 	const setTokenSearchValues = (type: any) => {
 		setTokenSearchType(type);
@@ -639,7 +632,6 @@ export function JupiterSwapModal(props: ModalProps) {
 											</button>) : (<div></div>)}
 											<div className="opacity-text fs-5 d-flex justify-content-end align-items-center" style={{ minWidth: "70%", width: "auto" }}>from {routes && routes[routes.length - 1]?.outAmount / LAMPORTS_PER_SOL} to {routes && routes[0]?.outAmount / LAMPORTS_PER_SOL}</div>
 										</div>
-										{/* <div className="collapse" id="moreRoutes"></div> */}
 									</div>
 								) : (
 									<div className="d-flex justify-content-center align-items-center mb-4 mt-4">
