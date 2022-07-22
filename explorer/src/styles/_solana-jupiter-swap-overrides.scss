@@ -32,6 +32,7 @@ $gradient-cyan: rgba(51, 163, 130, .3);
   width: 100%;
   background-color: $light-gray;
   position: absolute;
+  top: 0;
   border-width: 0;
 }
 
@@ -174,8 +175,12 @@ input[type=number] {
   width: 32px;
   height: 32px;
   background: none;
-  opacity: 0.5;
+  opacity: 0.3;
   color: white;
+
+  &:hover {
+    opacity: 0.5;
+  }
 }
 
 .border-left {

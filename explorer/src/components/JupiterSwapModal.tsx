@@ -54,25 +54,25 @@ export function JupiterSwapModal(props: ModalProps) {
 	const wallet = useWallet();
 	const [balance, setBalance] = useState(0);
 	const { tokenRegistry } = useTokenRegistry();
-	const [recieveTokenBalance,setRecieveTokenBalance] = useState(0);
+	const [recieveTokenBalance, setRecieveTokenBalance] = useState(0);
 
-	const setWalletBalance = async (tokenAddress:string,type:string) => {
+	const setWalletBalance = async (tokenAddress: string, type: string) => {
 		if (wallet?.publicKey) {
 			try {
 				const info = await connection.getParsedTokenAccountsByOwner(wallet.publicKey, {
-				   mint:new PublicKey(tokenAddress),
+					mint: new PublicKey(tokenAddress),
 				},
 				);
 				const balance = info.value[0].account.data.parsed.info.tokenAmount.uiAmount;
 				if (type === "pay") {
 					setBalance(balance);
-				    if ((balance) - 0.00001 > 0) {
-					   setInputBalance(balance - 0.00001);
-				    } else {
-					  setInputBalance(0);
-				   }
+					if ((balance) - 0.00001 > 0) {
+						setInputBalance(balance - 0.00001);
+					} else {
+						setInputBalance(0);
+					}
 				} else if (type === "receive") {
-				    setRecieveTokenBalance(balance);	
+					setRecieveTokenBalance(balance);
 				}
 			} catch (error) {
 				console.log(error);
@@ -120,7 +120,6 @@ export function JupiterSwapModal(props: ModalProps) {
 	// token search modal
 	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
 	const [tokenSearch, setTokenSearch] = useState("");
-	const [tokenSearchOptions, setTokenSearchOptions] = useState<Token[]>([]);
 
 	const setTokenValues = (token: any, type?: string) => {
 		if (tokenSearchType === 'pay' || type === 'pay') {
@@ -132,7 +131,7 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
 			// if (tokenExchangeAmount) {
-			setWalletBalance(token.address,"pay");
+			setWalletBalance(token.address, "pay");
 			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			// }
 			setInputMint(new PublicKey(token.address));
@@ -144,7 +143,7 @@ export function JupiterSwapModal(props: ModalProps) {
 					outputMint: new PublicKey(token.address),
 				};
 			});
-			setWalletBalance(token.address,"receive");
+			setWalletBalance(token.address, "receive");
 			setOutputMint(new PublicKey(token.address));
 			setOutputToken(token);
 		}
@@ -324,25 +323,25 @@ export function JupiterSwapModal(props: ModalProps) {
 				<div className="jupiter-modal">
 					<div className="d-flex mb-3">
 						{aggregator ? (
-						<div className="d-flex justify-content-between align-items-center p-3 me-4 w-100 selected-aggregator rounded-3"
-								 onClick={() => setShowAggregatorSearch(true)}>
-							<div className="w-100 d-flex align-items-center">
-								<img className="me-3" src={aggregator.logo} alt={aggregator.name} width="25"></img>
-								<div><span>{aggregator.name}</span></div>
+							<div className="d-flex justify-content-between align-items-center p-3 me-4 w-100 selected-aggregator rounded-3"
+								onClick={() => setShowAggregatorSearch(true)}>
+								<div className="w-100 d-flex align-items-center">
+									<img className="me-3" src={aggregator.logo} alt={aggregator.name} width="25"></img>
+									<div><span>{aggregator.name}</span></div>
+								</div>
+								<div>
+									<span className="fe fe-align-justify" style={{ fontSize: "16px" }}></span>
+								</div>
 							</div>
-							<div>
-								<span className="fe fe-align-justify" style={{fontSize: "16px"}}></span>
-							</div>
-						</div>
 						) : (
-						<div
-							className="d-flex justify-content-between align-items-center p-3 me-4 w-100"
-							onClick={() => setShowAggregatorSearch(true)}>
-							<input className="form-control" placeholder="Select Aggregator"></input>
-							<div className="border-left">
-								<span className="fe fe-search ps-3"></span>
-							</div>
-						</div>)}
+							<div
+								className="d-flex justify-content-between align-items-center p-3 me-4 w-100"
+								onClick={() => setShowAggregatorSearch(true)}>
+								<input className="form-control" placeholder="Select Aggregator"></input>
+								<div className="border-left">
+									<span className="fe fe-search ps-3"></span>
+								</div>
+							</div>)}
 						<button
 							className="d-flex align-items-center slippage-setting-btn p-3 rounded-3 opacity-text"
 							onClick={() => setShowSlippageSettings(true)}>
@@ -371,20 +370,21 @@ export function JupiterSwapModal(props: ModalProps) {
 								{aggregatorOptions.length ? aggregatorOptions.map((aggregator, idx) => {
 									return (
 										<div className="w-100 d-flex align-items-center p-3 aggregator-option"
-												 key={idx}
-												 onClick={() => {
-												 	setAggregator(aggregator);
-												 	setShowAggregatorSearch(false);}}>
+											key={idx}
+											onClick={() => {
+												setAggregator(aggregator);
+												setShowAggregatorSearch(false);
+											}}>
 											<img className="aggregator-logo me-3" src={aggregator.logo} alt={aggregator.name}
-													 width="25"></img>
+												width="25"></img>
 											<div><span>{aggregator.name}</span></div>
 										</div>
 									)
 								}) : (
-								<div className="w-100 text-center py-3">
-									<span>No result found</span>
-								</div>)}
-								<div style={{height: "15px", borderTop: "1px solid #282d2b"}}></div>
+									<div className="w-100 text-center py-3">
+										<span>No result found</span>
+									</div>)}
+								<div style={{ height: "15px", borderTop: "1px solid #282d2b" }}></div>
 							</div>
 						</div>
 					) : null}
@@ -501,13 +501,13 @@ export function JupiterSwapModal(props: ModalProps) {
 								<div className="fs-7 d-flex">
 									<div className="fs-7 d-flex justify-content-center align-items-center"> Balance: {balance}</div>
 									<div className="input-balance-reset-button" onClick={() => {
-									  if ((inputBalance/2) > 0.00001) {
+										if ((inputBalance / 2) > 0.00001) {
 											setExchangeAmount(parseFloat(((inputBalance / 2) * (10 ** inputToken?.decimals)).toString()) || 1);
 											setInputBalance(parseFloat((inputBalance / 2).toString()))
-									  }
+										}
 									}}>HALF</div>
 									<div className="input-balance-reset-button" onClick={() => {
-										setExchangeAmount(parseFloat(((balance-0.00001) * (10 ** inputToken?.decimals)).toString()) || 1);
+										setExchangeAmount(parseFloat(((balance - 0.00001) * (10 ** inputToken?.decimals)).toString()) || 1);
 										setInputBalance(parseFloat((balance - 0.00001).toString()))
 									}
 									}>MAX</div>
@@ -543,8 +543,10 @@ export function JupiterSwapModal(props: ModalProps) {
 							</div>
 						</div>
 
-						<div className="switch mx-auto mt-4 mb-4" onClick={() => swapUserInputTokens()}>
-							<button className="rounded-circle d-flex justify-content-center align-items-center">
+						<div className="switch mx-auto mt-4 mb-4">
+							<button className="rounded-circle d-flex justify-content-center align-items-center"
+								disabled={!inputToken?.address || !outputToken?.address}
+								onClick={() => swapUserInputTokens()}>
 								<div className="fe fe-minimize-2"></div>
 							</button>
 						</div>
