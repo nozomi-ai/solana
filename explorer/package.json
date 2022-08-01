@@ -49,7 +49,6 @@
     "react-moment": "^1.1.2",
     "react-select": "^4.3.1",
     "sharp": "^0.30.6",
-    "sass": "^1.53.0",
     "superstruct": "^0.15.3"
   },
   "devDependencies": {
@@ -61,7 +60,7 @@
     "@types/react-select": "^4.0.18",
     "eslint": "8.17.0",
     "eslint-config-next": "12.1.6",
-    "sass": "^1.52.3",
+    "sass": "^1.53.0",
     "typescript": "4.7.3"
   }
 }
