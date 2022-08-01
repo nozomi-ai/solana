@@ -15,13 +15,11 @@ import { ScrollAnchorProvider } from 'src/providers/scroll-anchor'
 import { StatsProvider } from 'src/providers/stats'
 import { MintsProvider } from 'src/providers/mints'
 import { Context } from 'src/providers/context'
-
 import { ClusterModal } from 'src/components/ClusterModal'
 import { MessageBanner } from 'src/components/MessageBanner'
 import { Navbar } from 'src/components/Navbar'
 import { ClusterStatusBanner } from 'src/components/ClusterStatusButton'
 import { SearchBar } from 'src/components/SearchBar'
-
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 
 function ExplorerApp({ Component, pageProps }: AppProps) {

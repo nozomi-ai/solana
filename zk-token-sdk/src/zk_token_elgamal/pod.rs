@@ -31,10 +31,6 @@ impl From<PodU64> for u64 {
 
 #[derive(Clone, Copy, Pod, Zeroable, PartialEq, Eq)]
 #[repr(transparent)]
-pub struct Scalar(pub [u8; 32]);
-
-#[derive(Clone, Copy, Pod, Zeroable, PartialEq, Eq)]
-#[repr(transparent)]
 pub struct CompressedRistretto(pub [u8; 32]);
 
 #[derive(Clone, Copy, Pod, Zeroable, PartialEq, Eq)]
@@ -44,6 +40,12 @@ pub struct ElGamalCiphertext(pub [u8; 64]);
 impl fmt::Debug for ElGamalCiphertext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.0)
+    }
+}
+
+impl fmt::Display for ElGamalCiphertext {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", base64::encode(self.0))
     }
 }
 
@@ -60,6 +62,12 @@ pub struct ElGamalPubkey(pub [u8; 32]);
 impl fmt::Debug for ElGamalPubkey {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.0)
+    }
+}
+
+impl fmt::Display for ElGamalPubkey {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", base64::encode(self.0))
     }
 }
 
@@ -181,6 +189,12 @@ unsafe impl Pod for AeCiphertext {}
 impl fmt::Debug for AeCiphertext {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self.0)
+    }
+}
+
+impl fmt::Display for AeCiphertext {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", base64::encode(self.0))
     }
 }
 

@@ -11,8 +11,8 @@ import { JupiterSwapModal } from './JupiterSwapModal';
 
 export function Navbar() {
   const router = useRouter();
-
   const [showSidebar, setShowSidebar] = React.useState(false);
+
   // TODO: use `collapsing` to animate collapsible navbar
   const [collapse, setCollapse] = React.useState(false);
 

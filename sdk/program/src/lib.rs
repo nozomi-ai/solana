@@ -603,7 +603,6 @@ pub mod slot_hashes;
 pub mod slot_history;
 pub mod stake;
 pub mod stake_history;
-#[cfg(target_os = "solana")]
 pub mod syscalls;
 pub mod system_instruction;
 pub mod system_program;
@@ -633,6 +632,39 @@ pub mod config {
 pub mod vote {
     pub mod program {
         crate::declare_id!("Vote111111111111111111111111111111111111111");
+    }
+}
+
+/// A vector of Solana SDK IDs
+pub mod sdk_ids {
+    use {
+        crate::{
+            bpf_loader, bpf_loader_deprecated, bpf_loader_upgradeable, config, ed25519_program,
+            feature, incinerator, secp256k1_program, solana_program::pubkey::Pubkey, stake,
+            system_program, sysvar, vote,
+        },
+        lazy_static::lazy_static,
+    };
+
+    lazy_static! {
+        pub static ref SDK_IDS: Vec<Pubkey> = {
+            let mut sdk_ids = vec![
+                ed25519_program::id(),
+                secp256k1_program::id(),
+                system_program::id(),
+                sysvar::id(),
+                bpf_loader::id(),
+                bpf_loader_upgradeable::id(),
+                incinerator::id(),
+                config::program::id(),
+                vote::program::id(),
+                feature::id(),
+                bpf_loader_deprecated::id(),
+                stake::config::id(),
+            ];
+            sdk_ids.extend(sysvar::ALL_IDS.iter());
+            sdk_ids
+        };
     }
 }
 
