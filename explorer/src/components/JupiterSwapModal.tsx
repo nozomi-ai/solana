@@ -42,8 +42,24 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [allTokens, setAllTokens] = useState<Token[]>([]);
 	const [tokens, setTokens] = useState<Token[]>([]);
 	const [tokenMap, setTokenMap] = useState<Map<string, TokenInfo>>(new Map());
-	const [inputToken, setInputToken] = useState<any>({});
-	const [outputToken, setOutputToken] = useState<any>({});
+	const [inputToken, setInputToken] = useState<Token>({
+		chainId: 0,
+	    address: '',
+	    symbol: '',
+	    name: '',
+	    decimals: 3,
+	    logoURI: '',
+	    tags: [''],
+	});
+	const [outputToken, setOutputToken] = useState<Token>({
+		chainId: 0,
+	    address: '',
+	    symbol: '',
+	    name: '',
+	    decimals: 3,
+	    logoURI: '',
+	    tags: [''],
+	});
 	const [tokenSearchType, setTokenSearchType] = useState<string>("");
 	const [exchangeAmount, setExchangeAmount] = useState<number>(1);
 	const [displayRoutes, setDisplayRoutes] = useState<any[]>([]);
@@ -311,8 +327,26 @@ export function JupiterSwapModal(props: ModalProps) {
 			setInputBalance(0);
 			setRecieveTokenBalance(0);
 			setExchangeAmount(0);
-			setInputToken(null);
-			setOutputToken(null);
+			setInputToken({
+				chainId: 0,
+				address: '',
+				symbol: '',
+				name: '',
+				decimals: 3,
+				logoURI: '',
+				tags: [''],
+			});
+			// setInputToken(null);
+			setOutputToken({
+				chainId: 0,
+				address: '',
+				symbol: '',
+				name: '',
+				decimals: 3,
+				logoURI: '',
+				tags: [''],
+			});
+			// setOutputToken(null);
 			setDisplayRoutes([]);
 			setBalance(0);
 		}
@@ -394,7 +428,8 @@ export function JupiterSwapModal(props: ModalProps) {
 							<div>
 								<span
 									className="fe fe-x slippage-close"
-									onClick={() => setShowSlippageSettings(false)}></span>
+									onClick={() => setShowSlippageSettings(false)}>
+									</span>
 							</div>
 							<div className="card-header">
 								<h4 className="card-header-title">Slippage Settings</h4>
