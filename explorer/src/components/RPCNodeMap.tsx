@@ -3,10 +3,9 @@ import DeckGL from '@deck.gl/react/typed';
 import { StaticMap } from 'react-map-gl';
 import { mapStyle } from "../utils/mapStyle";
 import { ArcLayer } from '@deck.gl/layers';
+import validatorData from '../validators/validators.json';
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoieWFzaG4iLCJhIjoiY2tybjZrYjViMWg3ejMxbGltc25vNTB1NyJ9.jmSJX_oaS7BY8GDizT37EA';
-
-const DATA_URL = "./data/newValidators.json";
 
 const INITIAL_VIEW_STATE = {
   longitude: 26.0063319,
@@ -29,8 +28,24 @@ const INITIAL_VIEW_STATE = {
 // });
 
 export function RPCNodeMap({
-  data = DATA_URL,
+  data = validatorData,
 }) {
+
+  function mapdata(arr, n, fn) {
+    for (var i = 0; i < arr.length; i += n)
+      fn(arr.slice(i, i + n));
+  }
+
+  mapdata(data, 2, function (msg) {
+
+    console.log(msg);
+
+    console.log(msg[0].latitude);
+    console.log(msg[0].longitude);
+
+    console.log(msg[1].latitude);
+    console.log(msg[1].longitude);
+  });
 
   const layer = new ArcLayer({
     id: 'arc-layer',
@@ -39,13 +54,13 @@ export function RPCNodeMap({
     opacity: 1,
     getWidth: 2,
     wrapLongitude: true,
-    getSourcePosition: (d) => [
-      parseFloat(d.from.longitude),
-      parseFloat(d.from.latitude)
+    getSourcePosition: (msg) => [
+      parseFloat(msg[0].longitude),
+      parseFloat(msg[0].latitude)
     ],
-    getTargetPosition: (d) => [
-      parseFloat(d.to.longitude),
-      parseFloat(d.to.latitude)
+    getTargetPosition: (msg) => [
+      parseFloat(msg[1].longitude),
+      parseFloat(msg[1].latitude)
     ],
     getSourceColor: (d) => [Math.sqrt(d.fare_amount), 140, 0],
     getTargetColor: (d) => [Math.sqrt(d.fare_amount), 140, 0],
