@@ -137,8 +137,9 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
 	const [tokenSearch, setTokenSearch] = useState("");
 
-	const setTokenValues = (token: any, type?: string) => {
+	const setTokenValues = async (token: any, type?: string) => {
 		if (tokenSearchType === 'pay' || type === 'pay') {
+			setWalletBalance(token.address, "pay");
 			setFormValue((prevValue) => {
 				return {
 					...prevValue,
@@ -147,7 +148,17 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
 			// if (tokenExchangeAmount) {
-			setWalletBalance(token.address, "pay");
+			let publicKey=wallet.publicKey || new PublicKey(token.address);
+			const info = await connection.getParsedTokenAccountsByOwner(publicKey, {
+					mint: new PublicKey(token.address),
+			},
+			);
+			const balance = info.value[0].account.data.parsed.info.tokenAmount.uiAmount;
+			let inputBalance = 0;
+			if ((balance) - 0.00001 > 0) {
+				inputBalance=(balance - 0.00001);
+			}
+			console.log(parseFloat((inputBalance * (10 ** token?.decimals)).toString()));
 			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			// }
 			setInputMint(new PublicKey(token.address));
@@ -309,6 +320,7 @@ export function JupiterSwapModal(props: ModalProps) {
 	const onClickSwapBestRoute = async () => {
 		if (routes && wallet.signAllTransactions && wallet.signTransaction) {
 			const bestRoute = routes[0];
+			console.log(bestRoute);
 			await exchange({
 				wallet: {
 					sendTransaction: wallet?.sendTransaction,
