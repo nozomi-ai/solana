@@ -1,22 +1,21 @@
 /* eslint-disable react/jsx-key */
 /* eslint-disable @next/next/no-img-element */
-import { TOKEN_LIST_URL, useJupiter, JupiterProvider } from "@jup-ag/react-hook";
+import { TOKEN_LIST_URL, useJupiter} from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
 import { useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import dynamic from "next/dynamic";
-import { useTokenRegistry } from "src/providers/mints/token-registry";
+
 export interface Token {
-	chainId: number; // 101,
-	address: string; // "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-	symbol: string; // "USDC",
-	name: string; // "Wrapped USDC",
-	decimals: number; // 6,
-	logoURI: string; // "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/BXXkv6z8ykpG1yuvUDPgh732wzVHB69RnB9YgSYh3itW/logo.png",
-	tags: string[]; // [ "stablecoin" ]
+	chainId: number; 
+	address: string; 
+	symbol: string; 
+	name: string; 
+	decimals: number;
+	logoURI: string; 
+	tags: string[]; 
 }
 
 interface SlippageOption {
@@ -69,8 +68,19 @@ export function JupiterSwapModal(props: ModalProps) {
 	const connection = new Connection(url);
 	const wallet = useWallet();
 	const [balance, setBalance] = useState(0);
-	const { tokenRegistry } = useTokenRegistry();
 	const [recieveTokenBalance, setRecieveTokenBalance] = useState(0);
+    const [inputMint, setInputMint] = useState<PublicKey | undefined>(undefined);
+	const [outputMint, setOutputMint] = useState<PublicKey | undefined>(undefined);
+	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
+	const [tokenSearch, setTokenSearch] = useState("");
+
+	const [formValue, setFormValue] = useState<UseJupiterProps>({
+		amount: 1 * 10 ** 6, 
+		inputMint: inputMint ? new PublicKey(inputMint) : undefined,
+		outputMint: outputMint ? new PublicKey(outputMint) : undefined,
+		slippage: 0.1,
+	});
+	const [inputBalance, setInputBalance] = useState(0);
 
 	const setWalletBalance = async (tokenAddress: string, type: string) => {
 		if (wallet?.publicKey) {
@@ -97,7 +107,6 @@ export function JupiterSwapModal(props: ModalProps) {
 	}
 
 	useEffect(() => {
-		// Fetch token list from Jupiter API
 		setTokenLoading(true);
 		fetch(TOKEN_LIST_URL["mainnet-beta"])
 			.then((response) => {
@@ -112,16 +121,7 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 	}, []);
 
-	const [inputMint, setInputMint] = useState<PublicKey | undefined>(undefined);
-	const [outputMint, setOutputMint] = useState<PublicKey | undefined>(undefined);
-
-	const [formValue, setFormValue] = useState<UseJupiterProps>({
-		amount: 1 * 10 ** 6, // unit in lamports (Decimals)
-		inputMint: inputMint ? new PublicKey(inputMint) : undefined,
-		outputMint: outputMint ? new PublicKey(outputMint) : undefined,
-		slippage: 0.1,
-	});
-	const [inputBalance, setInputBalance] = useState(0);
+	
 	const [inputTokenInfo, outputTokenInfo] = useMemo(() => {
 		return [
 			tokenMap.get(formValue.inputMint?.toBase58() || ""),
@@ -133,10 +133,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		return formValue.amount * 10 ** (inputTokenInfo?.decimals || 1);
 	}, [inputTokenInfo, formValue.amount]);
 
-	// token search modal
-	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
-	const [tokenSearch, setTokenSearch] = useState("");
-
 	const setTokenValues = async (token: any, type?: string) => {
 		if (tokenSearchType === 'pay' || type === 'pay') {
 			setWalletBalance(token.address, "pay");
@@ -146,8 +142,7 @@ export function JupiterSwapModal(props: ModalProps) {
 					inputMint: new PublicKey(token.address),
 				};
 			});
-			// const tokenExchangeAmount = tokens.find(item => item.address === token.address);
-			// if (tokenExchangeAmount) {
+		
 			let publicKey=wallet.publicKey || new PublicKey(token.address);
 			const info = await connection.getParsedTokenAccountsByOwner(publicKey, {
 					mint: new PublicKey(token.address),
@@ -160,7 +155,6 @@ export function JupiterSwapModal(props: ModalProps) {
 			}
 			console.log(parseFloat((inputBalance * (10 ** token?.decimals)).toString()));
 			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
-			// }
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
 		} else if (tokenSearchType === 'receive' || type === 'receive') {
@@ -193,7 +187,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		setTokens(options);
 	}, [tokenSearch, allTokens]);
 
-	// aggregator search modal
 	const [showAggregatorSearch, setShowAggregatorSearch] =
 		useState<boolean>(false);
 	const [aggregator, setAggregator] = useState<Aggregator | null>(null);
@@ -212,7 +205,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		setAggregatorOptions(options);
 	}, [aggregatorSearch]);
 
-	// slippage settings modal
 	const [showSlippageSettings, setShowSlippageSettings] =
 		useState<boolean>(false);
 	const [selectSlippage, setSelectSlippage] = useState<number | null>(null);
@@ -260,20 +252,20 @@ export function JupiterSwapModal(props: ModalProps) {
 
 	const [showMore, setShowMore] = useState(false);
 	const jupiter = useJupiter({
-		amount: exchangeAmount, // raw input amount of tokens
+		amount: exchangeAmount, 
 		inputMint,
 		outputMint,
-		slippage: 1, // 1% slippage
-		debounceTime: 250, // debounce ms time before refresh
+		slippage: 1, 
+		debounceTime: 250, 
 	});
 	const {
-		allTokenMints, // all the token mints that is possible to be input
-		routeMap, // routeMap, same as the one in @jup-ag/core
-		exchange, // exchange 
-		refresh, // function to refresh rates
-		lastRefreshTimestamp, // timestamp when the data was last returned
-		loading, // loading states
-		routes, // all the routes from inputMint to outputMint
+		allTokenMints, 
+		routeMap, 
+		exchange, 
+		refresh, 
+		lastRefreshTimestamp, 
+		loading, 
+		routes, 
 		error,
 	} = jupiter;
 	useEffect(() => {
@@ -348,7 +340,6 @@ export function JupiterSwapModal(props: ModalProps) {
 				logoURI: '',
 				tags: [''],
 			});
-			// setInputToken(null);
 			setOutputToken({
 				chainId: 0,
 				address: '',
@@ -358,7 +349,6 @@ export function JupiterSwapModal(props: ModalProps) {
 				logoURI: '',
 				tags: [''],
 			});
-			// setOutputToken(null);
 			setDisplayRoutes([]);
 			setBalance(0);
 		}

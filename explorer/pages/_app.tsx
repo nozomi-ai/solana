@@ -14,7 +14,7 @@ import { EpochProvider } from 'src/providers/epoch'
 import { ScrollAnchorProvider } from 'src/providers/scroll-anchor'
 import { StatsProvider } from 'src/providers/stats'
 import { MintsProvider } from 'src/providers/mints'
-import { Context } from 'src/providers/context'
+import { JupiterContext } from 'src/providers/jupiter-context'
 import { ClusterModal } from 'src/components/ClusterModal'
 import { MessageBanner } from 'src/components/MessageBanner'
 import { Navbar } from 'src/components/Navbar'
@@ -69,7 +69,7 @@ function ExplorerApp({ Component, pageProps }: AppProps) {
 
 function SharedLayout({ children }: { children: React.ReactNode }) {
 	return (
-		<Context>
+		<JupiterContext>
 			<ClusterModal />
 
 			<div className="main-content pb-4">
@@ -80,7 +80,7 @@ function SharedLayout({ children }: { children: React.ReactNode }) {
 
 				{children}
 			</div>
-		</Context>
+		</JupiterContext>
 	)
 }
 
