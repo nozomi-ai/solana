@@ -153,7 +153,6 @@ export function JupiterSwapModal(props: ModalProps) {
 			if ((balance) - 0.00001 > 0) {
 				inputBalance=(balance - 0.00001);
 			}
-			console.log(parseFloat((inputBalance * (10 ** token?.decimals)).toString()));
 			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			setInputMint(new PublicKey(token.address));
 			setInputToken(token);
@@ -312,7 +311,6 @@ export function JupiterSwapModal(props: ModalProps) {
 	const onClickSwapBestRoute = async () => {
 		if (routes && wallet.signAllTransactions && wallet.signTransaction) {
 			const bestRoute = routes[0];
-			console.log(bestRoute);
 			await exchange({
 				wallet: {
 					sendTransaction: wallet?.sendTransaction,
