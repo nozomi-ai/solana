@@ -1,31 +1,24 @@
 /* eslint-disable react/jsx-key */
 /* eslint-disable @next/next/no-img-element */
-import { TOKEN_LIST_URL, useJupiter} from "@jup-ag/react-hook";
+import { TOKEN_LIST_URL, useJupiter } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, ChangeEvent } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import SlippageModal, { SlippageOption } from "./jupiter-swap/SlippageModal";
+import TokenSearchModal from "./jupiter-swap/TokenSearchModal";
+import AggregatorSearchModal, { Aggregator } from "./jupiter-swap/AggregatorSearchModal";
 
 export interface Token {
-	chainId: number; 
-	address: string; 
-	symbol: string; 
-	name: string; 
-	decimals: number;
-	logoURI: string; 
-	tags: string[]; 
-}
-
-interface SlippageOption {
-	value: number;
-	isSelected: boolean;
-}
-
-interface Aggregator {
+	chainId: number;
+	address: string;
+	symbol: string;
 	name: string;
-	logo: string;
+	decimals: number;
+	logoURI: string;
+	tags: string[];
 }
 
 const aggregators: Array<Aggregator> = [
@@ -33,54 +26,86 @@ const aggregators: Array<Aggregator> = [
 		name: "Jupiter Finance",
 		logo: "/img/logos-aggregator/jupiter.svg"
 	}
-]
+];
+
+const slippageOptionsInit: Array<SlippageOption> = [
+	{
+		value: 0.1,
+		isSelected: false,
+	},
+	{
+		value: 0.5,
+		isSelected: false,
+	},
+	{
+		value: 1.0,
+		isSelected: false,
+	},
+];
 
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
 export function JupiterSwapModal(props: ModalProps) {
+	const url = "https://ssc-dao.genesysgo.net/";
+	const connection = new Connection(url);
+	const wallet = useWallet();
+
 	const [allTokens, setAllTokens] = useState<Token[]>([]);
 	const [tokens, setTokens] = useState<Token[]>([]);
 	const [tokenMap, setTokenMap] = useState<Map<string, TokenInfo>>(new Map());
 	const [inputToken, setInputToken] = useState<Token>({
 		chainId: 0,
-	    address: '',
-	    symbol: '',
-	    name: '',
-	    decimals: 3,
-	    logoURI: '',
-	    tags: [''],
+		address: '',
+		symbol: '',
+		name: '',
+		decimals: 3,
+		logoURI: '',
+		tags: [''],
 	});
 	const [outputToken, setOutputToken] = useState<Token>({
 		chainId: 0,
-	    address: '',
-	    symbol: '',
-	    name: '',
-	    decimals: 3,
-	    logoURI: '',
-	    tags: [''],
+		address: '',
+		symbol: '',
+		name: '',
+		decimals: 3,
+		logoURI: '',
+		tags: [''],
 	});
 	const [tokenSearchType, setTokenSearchType] = useState<string>("");
 	const [exchangeAmount, setExchangeAmount] = useState<number>(1);
 	const [displayRoutes, setDisplayRoutes] = useState<any[]>([]);
 	const [additionalRoutes, setAdditionalRoutes] = useState<any[]>([]);
 	const [tokenLoading, setTokenLoading] = useState<boolean>(false);
-	const url = "https://ssc-dao.genesysgo.net/";
-	const connection = new Connection(url);
-	const wallet = useWallet();
+
 	const [balance, setBalance] = useState(0);
 	const [recieveTokenBalance, setRecieveTokenBalance] = useState(0);
-    const [inputMint, setInputMint] = useState<PublicKey | undefined>(undefined);
+	const [inputMint, setInputMint] = useState<PublicKey | undefined>(undefined);
 	const [outputMint, setOutputMint] = useState<PublicKey | undefined>(undefined);
 	const [showTokenSearch, setShowTokenSearch] = useState<boolean>(false);
 	const [tokenSearch, setTokenSearch] = useState("");
 
 	const [formValue, setFormValue] = useState<UseJupiterProps>({
-		amount: 1 * 10 ** 6, 
+		amount: 1 * 10 ** 6,
 		inputMint: inputMint ? new PublicKey(inputMint) : undefined,
 		outputMint: outputMint ? new PublicKey(outputMint) : undefined,
 		slippage: 0.1,
 	});
 	const [inputBalance, setInputBalance] = useState(0);
+
+	const [showSlippageSettings, setShowSlippageSettings] =
+		useState<boolean>(false);
+	const [selectSlippage, setSelectSlippage] = useState<number | null>(null);
+
+	const [slippageOptions, setSlippageOptions] = useState<Array<SlippageOption>>(slippageOptionsInit);
+	const [inputSlippage, setInputSlippage] = useState("");
+
+	const [showAggregatorSearch, setShowAggregatorSearch] =
+		useState<boolean>(false);
+	const [aggregator, setAggregator] = useState<Aggregator | null>(null);
+	const [aggregatorOptions, setAggregatorOptions] = useState<Array<Aggregator>>(aggregators);
+	const [aggregatorSearch, setAggregatorSearch] = useState("");
+
+	const [showMore, setShowMore] = useState(false);
 
 	const setWalletBalance = async (tokenAddress: string, type: string) => {
 		if (wallet?.publicKey) {
@@ -121,7 +146,7 @@ export function JupiterSwapModal(props: ModalProps) {
 			});
 	}, []);
 
-	
+
 	const [inputTokenInfo, outputTokenInfo] = useMemo(() => {
 		return [
 			tokenMap.get(formValue.inputMint?.toBase58() || ""),
@@ -142,16 +167,15 @@ export function JupiterSwapModal(props: ModalProps) {
 					inputMint: new PublicKey(token.address),
 				};
 			});
-		
-			let publicKey=wallet.publicKey || new PublicKey(token.address);
+
+			let publicKey = wallet.publicKey || new PublicKey(token.address);
 			const info = await connection.getParsedTokenAccountsByOwner(publicKey, {
-					mint: new PublicKey(token.address),
-			},
-			);
+				mint: new PublicKey(token.address),
+			});
 			const balance = info.value[0].account.data.parsed.info.tokenAmount.uiAmount;
 			let inputBalance = 0;
 			if ((balance) - 0.00001 > 0) {
-				inputBalance=(balance - 0.00001);
+				inputBalance = (balance - 0.00001);
 			}
 			setExchangeAmount(parseFloat((inputBalance * (10 ** token?.decimals)).toString()) || 1);
 			setInputMint(new PublicKey(token.address));
@@ -170,8 +194,8 @@ export function JupiterSwapModal(props: ModalProps) {
 		setShowTokenSearch(false);
 	};
 
-	const onTokenSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-		setTokenSearch(event.target.value);
+	const onTokenSearchChange = (value: string) => {
+		setTokenSearch(value);
 	}
 
 	useEffect(() => {
@@ -186,14 +210,8 @@ export function JupiterSwapModal(props: ModalProps) {
 		setTokens(options);
 	}, [tokenSearch, allTokens]);
 
-	const [showAggregatorSearch, setShowAggregatorSearch] =
-		useState<boolean>(false);
-	const [aggregator, setAggregator] = useState<Aggregator | null>(null);
-	const [aggregatorOptions, setAggregatorOptions] = useState<Array<Aggregator>>(aggregators);
-	const [aggregatorSearch, setAggregatorSearch] = useState("");
-
-	const onAggregatorSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-		setAggregatorSearch(event.target.value);
+	const onAggregatorSearchChange = (value: string) => {
+		setAggregatorSearch(value);
 	}
 
 	useEffect(() => {
@@ -203,27 +221,6 @@ export function JupiterSwapModal(props: ModalProps) {
 		})
 		setAggregatorOptions(options);
 	}, [aggregatorSearch]);
-
-	const [showSlippageSettings, setShowSlippageSettings] =
-		useState<boolean>(false);
-	const [selectSlippage, setSelectSlippage] = useState<number | null>(null);
-	const slippageOptionsInit: Array<SlippageOption> = [
-		{
-			value: 0.1,
-			isSelected: false,
-		},
-		{
-			value: 0.5,
-			isSelected: false,
-		},
-		{
-			value: 1.0,
-			isSelected: false,
-		},
-	];
-	const [slippageOptions, setSlippageOptions] =
-		useState<Array<SlippageOption>>(slippageOptionsInit);
-	const [inputSlippage, setInputSlippage] = useState("");
 
 	const onClickSlippageOptionBtn = (selectedIdx: number) => {
 		setSelectSlippage(slippageOptions[selectedIdx].value);
@@ -249,22 +246,21 @@ export function JupiterSwapModal(props: ModalProps) {
 		}
 	};
 
-	const [showMore, setShowMore] = useState(false);
 	const jupiter = useJupiter({
-		amount: exchangeAmount, 
+		amount: exchangeAmount,
 		inputMint,
 		outputMint,
-		slippage: 1, 
-		debounceTime: 250, 
+		slippage: 1,
+		debounceTime: 250,
 	});
 	const {
-		allTokenMints, 
-		routeMap, 
-		exchange, 
-		refresh, 
-		lastRefreshTimestamp, 
-		loading, 
-		routes, 
+		allTokenMints,
+		routeMap,
+		exchange,
+		refresh,
+		lastRefreshTimestamp,
+		loading,
+		routes,
 		error,
 	} = jupiter;
 	useEffect(() => {
@@ -385,146 +381,35 @@ export function JupiterSwapModal(props: ModalProps) {
 					</div>
 
 					{showAggregatorSearch ? (
-						<div className="card aggregator-card">
-							<div className="card-header d-flex justify-content-between">
-								<div className="d-flex align-items-center">
-									<span className="fe fe-search me-3"></span>
-									<input className="form-control me-1"
-										value={aggregatorSearch}
-										onChange={onAggregatorSearchChange}></input>
-								</div>
-								<div>
-									<span
-										className="fe fe-x slippage-close"
-										onClick={() => setShowAggregatorSearch(false)}></span>
-								</div>
-							</div>
-
-							<div className="card-body aggregator-search-body">
-								{aggregatorOptions.length ? aggregatorOptions.map((aggregator, idx) => {
-									return (
-										<div className="w-100 d-flex align-items-center p-3 aggregator-option"
-											key={idx}
-											onClick={() => {
-												setAggregator(aggregator);
-												setShowAggregatorSearch(false);
-											}}>
-											<img className="aggregator-logo me-3" src={aggregator.logo} alt={aggregator.name}
-												width="25"></img>
-											<div><span>{aggregator.name}</span></div>
-										</div>
-									)
-								}) : (
-									<div className="w-100 text-center py-3">
-										<span>No result found</span>
-									</div>)}
-								<div style={{ height: "15px", borderTop: "1px solid #282d2b" }}></div>
-							</div>
-						</div>
+						<AggregatorSearchModal
+							aggregatorOptions={aggregatorOptions}
+							setAggregator={setAggregator}
+							aggregatorSearch={aggregatorSearch}
+							onAggregatorSearchChange={onAggregatorSearchChange}
+							setShowAggregatorSearch={setShowAggregatorSearch}
+						/>
 					) : null}
 
 					{showSlippageSettings ? (
-						<div className="card slippage-card">
-							<div>
-								<span
-									className="fe fe-x slippage-close"
-									onClick={() => setShowSlippageSettings(false)}>
-									</span>
-							</div>
-							<div className="card-header">
-								<h4 className="card-header-title">Slippage Settings</h4>
-							</div>
-							<div className="card-body">
-								<div className="d-flex flex-column">
-									<div className="d-flex mb-3">
-										{slippageOptions.map((option, idx) => {
-											return (
-												<button
-													key={idx}
-													className={
-														"w-100 py-3 rounded-3 slippage-btn " +
-														(option.isSelected ? "selected" : "") +
-														(idx === slippageOptions.length - 1 ? "" : " me-2")
-													}
-													onClick={() => onClickSlippageOptionBtn(idx)}>
-													<span className="opacity-text">{option.value}%</span>
-												</button>
-											);
-										})}
-									</div>
-									<div className="custom-slippage d-flex justify-content-between align-items-center mb-3 rounded-3 px-3 py-1">
-										<div className="custom-text opacity-text">
-											Custom Slippage
-										</div>
-										<div className="input-box d-flex align-items-center">
-											<input
-												type="number"
-												placeholder="0.00"
-												className="form-control text-end me-1"
-												onChange={(e) => {
-													slippageOptions.forEach((option, idx) => {
-														option.isSelected = false;
-													});
-													setSelectSlippage(null);
-													setInputSlippage(e.target.value);
-												}}></input>
-											<div className="opacity-text">%</div>
-										</div>
-									</div>
-									<button
-										className="w-100 py-3 rounded-3 save-btn"
-										onClick={saveSlippageSettings}>
-										Save Settings
-									</button>
-								</div>
-							</div>
-						</div>
+						<SlippageModal
+							slippageOptions={slippageOptions}
+							setShowSlippageSettings={setShowSlippageSettings}
+							onClickSlippageOptionBtn={onClickSlippageOptionBtn}
+							setSelectSlippage={setSelectSlippage}
+							setInputSlippage={setInputSlippage}
+							saveSlippageSettings={saveSlippageSettings}
+						/>
 					) : null}
 
 					{showTokenSearch ? (
-						<div className="card token-search-card">
-							<div className="card-header d-flex justify-content-between">
-								<div className="d-flex align-items-center token-input-box">
-									<span className="fe fe-search me-3"></span>
-									<input className="form-control me-1"
-										placeholder="Search by token or paste address"
-										value={tokenSearch}
-										onChange={onTokenSearchChange}></input>
-								</div>
-								<div>
-									<span
-										className="fe fe-x slippage-close"
-										onClick={() => setShowTokenSearch(false)}></span>
-								</div>
-							</div>
-
-							<div className="token-search-body col">
-								{tokenLoading ? (
-									<div className="p-5 text-center w-100">
-										<span>Loading...</span>
-									</div>
-								) : (tokens.length > 0 ? tokens.map(token => {
-									return (
-										<button
-											className="p-4 d-flex align-items-center token-container w-100"
-											key={token.address}
-											onClick={() => setTokenValues(token)}
-										>
-											<div className="me-3">
-												<img
-													className="token-logo rounded-circle"
-													src={token.logoURI}
-													alt={token.symbol}></img>
-											</div>
-											<div className="d-flex flex-column align-items-start">
-												<div className="token-symbol">{token.symbol}</div>
-												<div className="token-name opacity-text">{token.name}</div>
-											</div>
-										</button>
-									)
-								}) : "No tokens found")}
-							</div>
-						</div>
+						<TokenSearchModal
+							tokenLoading={tokenLoading}
+							tokens={tokens}
+							setShowTokenSearch={setShowTokenSearch}
+							setTokenValues={setTokenValues}
+							onTokenSearchChange={onTokenSearchChange}
+							tokenSearch={tokenSearch}
+						/>
 					) : null}
 
 					<div className="card main-card p-4">
