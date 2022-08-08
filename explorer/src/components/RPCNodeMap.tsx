@@ -9,28 +9,14 @@ import * as d3 from 'd3';
 
 const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoieWFzaG4iLCJhIjoiY2tybjZrYjViMWg3ejMxbGltc25vNTB1NyJ9.jmSJX_oaS7BY8GDizT37EA';
 
+const addData = [];
 
-function mapdata(arr, n, fn) {
-  for (var i = 0; i < arr.length; i += n)
-    fn(arr.slice(i, i + n));
-}
-
-function newMapData() {
-  mapdata(Validators, 2, function (msg) {
-    // console.log(msg)
-    var newData = `${msg[0].latitude} , ${msg[0].longitude}, ${msg[1].latitude} , ${msg[1].longitude}`
-    console.log(`${newData}`)
-  });
-}
-
-const addData = newMapData()
-
-// Working code:
-// const addData = `41.1696 , -111.9818, 51.2993 , 9.491
-// 51.4964 , -0.1224, 51.2993 , 9.491
-// 41.7572 , -88.3177, 55.9318 , 23.3289
-// 41.1696 , -111.9818, 34.0544 , -118.2441
-// 48.8582 , 2.3387, 44.4205 , 26.169`
+Validators.forEach(function () {
+  for (var i = 0; i < ((Validators.length) / 2); i += 2) {
+    // @ts-ignore
+    addData.push(`source_latitude,source_longitude,destination_latitude,destination_longitude \n${Validators[i].latitude}, ${Validators[i].longitude}, ${Validators[i + 1].latitude}, ${Validators[i + 1].longitude}`)
+  }
+})
 
 const csvData = `source_latitude,source_longitude,destination_latitude,destination_longitude
 ${addData}

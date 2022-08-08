@@ -26,7 +26,7 @@ export function ClusterStatsPage() {
   return (
     <div className="container mt-4">
       <RPCNodeMap />
-      <StakingComponent />
+      {/* <StakingComponent />
       <div className="card">
         <div className="card-header">
           <div className="row align-items-center">
@@ -37,7 +37,7 @@ export function ClusterStatsPage() {
         </div>
         <StatsCardBody />
       </div>
-      <LiveTransactionStatsCard />
+      <LiveTransactionStatsCard /> */}
     </div>
   );
 }
