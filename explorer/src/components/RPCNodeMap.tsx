@@ -32,7 +32,7 @@ const addData = newMapData()
 // 41.1696 , -111.9818, 34.0544 , -118.2441
 // 48.8582 , 2.3387, 44.4205 , 26.169`
 
-const csvData = `pickup_latitude,pickup_longitude,dropoff_latitude,dropoff_longitude
+const csvData = `source_latitude,source_longitude,destination_latitude,destination_longitude
 ${addData}
 `
 
@@ -60,8 +60,8 @@ export function RPCNodeMap({
       opacity: 1,
       getWidth: 2,
       wrapLongitude: true,
-      getSourcePosition: d => ([parseFloat(d.pickup_longitude), parseFloat(d.pickup_latitude)]),
-      getTargetPosition: d => ([parseFloat(d.dropoff_longitude), parseFloat(d.dropoff_latitude)]),
+      getSourcePosition: d => ([parseFloat(d.source_longitude), parseFloat(d.source_latitude)]),
+      getTargetPosition: d => ([parseFloat(d.destination_longitude), parseFloat(d.destination_latitude)]),
       getSourceColor: [191, 64, 191],
       getTargetColor: [191, 64, 191],
     }),
@@ -69,7 +69,7 @@ export function RPCNodeMap({
       id: 'grid',
       data,
       opacity: 1,
-      getPosition: d => [[parseFloat(d.pickup_longitude), parseFloat(d.pickup_latitude), parseFloat(d.dropoff_longitude), parseFloat(d.dropoff_latitude)]],
+      getPosition: d => [[parseFloat(d.source_longitude), parseFloat(d.source_latitude), parseFloat(d.destination_longitude), parseFloat(d.destination_latitude)]],
       getWeight: 4,
       cellSizePixels: cellSize,
       colorRange: [191, 64, 191],
