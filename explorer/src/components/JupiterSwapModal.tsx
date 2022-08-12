@@ -6,10 +6,11 @@ import { useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useWallet } from "@solana/wallet-adapter-react";
-import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { clusterApiUrl, Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import SlippageModal from "./jupiter-swap/SlippageModal";
 import TokenSearchModal from "./jupiter-swap/TokenSearchModal";
 import AggregatorSearchModal, { Aggregator } from "./jupiter-swap/AggregatorSearchModal";
+import { Cluster, clusterUrl, useCluster } from "src/providers/cluster";
 
 export interface Token {
 	chainId: number;
@@ -33,7 +34,16 @@ const slippageOptions: Array<number> = [0.1, 0.5, 1.0];
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
 export function JupiterSwapModal(props: ModalProps) {
-	const url = "https://ssc-dao.genesysgo.net/";
+	const { cluster, customUrl } = useCluster();
+    const currentClusterUrl = clusterUrl(cluster, customUrl);
+    var url = "";
+    if (cluster === Cluster.MainnetBeta) {
+        url = clusterApiUrl("mainnet-beta");
+    } else if (cluster === Cluster.Testnet) { 
+        url = clusterApiUrl("testnet");
+    } else {
+        url = clusterApiUrl("devnet");
+    }
 	const connection = new Connection(url);
 	const wallet = useWallet();
 
