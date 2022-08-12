@@ -1,20 +1,19 @@
-export interface SlippageOption {
-  value: number;
-  isSelected: boolean;
-}
-
 export default function SlippageModal({
   slippageOptions,
   setShowSlippageSettings,
   onClickSlippageOptionBtn,
+  selectSlippage,
   setSelectSlippage,
+  inputSlippage,
   setInputSlippage,
   saveSlippageSettings
 }: {
-  slippageOptions: Array<SlippageOption>;
+  slippageOptions: Array<number>;
   setShowSlippageSettings: Function;
   onClickSlippageOptionBtn: Function;
+  selectSlippage: number | null;
   setSelectSlippage: Function;
+  inputSlippage: string;
   setInputSlippage: Function;
   saveSlippageSettings: Function;
 }) {
@@ -38,11 +37,11 @@ export default function SlippageModal({
                   key={idx}
                   className={
                     "w-100 py-3 rounded-3 slippage-btn" +
-                    (option.isSelected ? " selected" : "") +
+                    (selectSlippage && selectSlippage === option ? " selected" : "") +
                     (idx === slippageOptions.length - 1 ? "" : " me-2")
                   }
                   onClick={() => onClickSlippageOptionBtn(idx)}>
-                  <span className="opacity-text">{option.value}%</span>
+                  <span className="opacity-text">{option}%</span>
                 </button>
               );
             })}
@@ -54,10 +53,8 @@ export default function SlippageModal({
                 type="number"
                 placeholder="0.00"
                 className="form-control text-end me-1"
+                value={inputSlippage}
                 onChange={(e) => {
-                  slippageOptions.forEach((option, idx) => {
-                    option.isSelected = false;
-                  });
                   setSelectSlippage(null);
                   setInputSlippage(e.target.value);
                 }}></input>

@@ -2,12 +2,12 @@
 /* eslint-disable @next/next/no-img-element */
 import { TOKEN_LIST_URL, useJupiter } from "@jup-ag/react-hook";
 import Modal, { ModalProps } from "react-bootstrap/Modal";
-import { useEffect, useState, useMemo, ChangeEvent } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { fetch } from "cross-fetch";
 import { TokenInfo } from "@solana/spl-token-registry";
 import { useWallet } from "@solana/wallet-adapter-react";
 import { Connection, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
-import SlippageModal, { SlippageOption } from "./jupiter-swap/SlippageModal";
+import SlippageModal from "./jupiter-swap/SlippageModal";
 import TokenSearchModal from "./jupiter-swap/TokenSearchModal";
 import AggregatorSearchModal, { Aggregator } from "./jupiter-swap/AggregatorSearchModal";
 
@@ -28,20 +28,7 @@ const aggregators: Array<Aggregator> = [
 	}
 ];
 
-const slippageOptionsInit: Array<SlippageOption> = [
-	{
-		value: 0.1,
-		isSelected: false,
-	},
-	{
-		value: 0.5,
-		isSelected: false,
-	},
-	{
-		value: 1.0,
-		isSelected: false,
-	},
-];
+const slippageOptions: Array<number> = [0.1, 0.5, 1.0];
 
 type UseJupiterProps = Parameters<typeof useJupiter>[0];
 
@@ -95,8 +82,6 @@ export function JupiterSwapModal(props: ModalProps) {
 	const [showSlippageSettings, setShowSlippageSettings] =
 		useState<boolean>(false);
 	const [selectSlippage, setSelectSlippage] = useState<number | null>(null);
-
-	const [slippageOptions, setSlippageOptions] = useState<Array<SlippageOption>>(slippageOptionsInit);
 	const [inputSlippage, setInputSlippage] = useState("");
 
 	const [showAggregatorSearch, setShowAggregatorSearch] =
@@ -223,15 +208,7 @@ export function JupiterSwapModal(props: ModalProps) {
 	}, [aggregatorSearch]);
 
 	const onClickSlippageOptionBtn = (selectedIdx: number) => {
-		setSelectSlippage(slippageOptions[selectedIdx].value);
-		slippageOptions.forEach((option, idx) => {
-			if (idx === selectedIdx) {
-				option.isSelected = true;
-			} else {
-				option.isSelected = false;
-			}
-		});
-		setSlippageOptions(slippageOptions);
+		setSelectSlippage(slippageOptions[selectedIdx]);
 	};
 
 	const saveSlippageSettings = () => {
@@ -395,7 +372,9 @@ export function JupiterSwapModal(props: ModalProps) {
 							slippageOptions={slippageOptions}
 							setShowSlippageSettings={setShowSlippageSettings}
 							onClickSlippageOptionBtn={onClickSlippageOptionBtn}
+							selectSlippage={selectSlippage}
 							setSelectSlippage={setSelectSlippage}
+							inputSlippage={inputSlippage}
 							setInputSlippage={setInputSlippage}
 							saveSlippageSettings={saveSlippageSettings}
 						/>
