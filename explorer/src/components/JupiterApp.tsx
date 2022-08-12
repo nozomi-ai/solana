@@ -8,7 +8,7 @@ require('@solana/wallet-adapter-react-ui/styles.css');
 export const JupiterApp: FC<{ children: ReactNode }> = ({ children }) => {
     const { cluster, customUrl } = useCluster();
     const currentClusterUrl = clusterUrl(cluster, customUrl);
-    var url = "https://ssc-dao.genesysgo.net/";
+    var url = "";
     if (cluster === Cluster.MainnetBeta) {
         url = clusterApiUrl("mainnet-beta");
     } else if (cluster === Cluster.Testnet) { 
