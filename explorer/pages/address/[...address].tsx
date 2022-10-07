@@ -261,7 +261,7 @@ export function AccountHeader({
           </div>
         )}
         <div className="col-auto">
-          <div className="avatar-img border border-4 border-body">
+          <div className="avatar">
             {token?.logoURI ? (
               <Image
                 src={`/api/image-proxy?imageUrl=${token.logoURI}`}
