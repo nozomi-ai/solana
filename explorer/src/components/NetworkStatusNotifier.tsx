@@ -23,8 +23,11 @@ function NetworkStatusNotifier() {
     let timer = setInterval(async () => {
       const res = await makeGetRequest(STATUS_API_ENDPOINT);
       const statusDesc = res.status.description;
-      setHasDownTime(statusDesc !== healthyStatus);
-      setCurrentErrorState(statusDesc);
+      //do the rerendering if the change in status for optimization purposes.
+      if (currentDownStatus !== statusDesc) {
+        setHasDownTime(statusDesc !== healthyStatus);
+        setCurrentErrorState(statusDesc);
+      }
     }, PING_PERIOD_IN_MS);
 
     return () => {
