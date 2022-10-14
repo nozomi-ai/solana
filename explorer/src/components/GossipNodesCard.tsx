@@ -100,9 +100,5 @@ const renderNetworkNodeRow = (node: GossipNode, index: number) => {
 };
 
 const NullBadge = () => {
-  return (
-    <span className={`badge bg-secondary-soft`}>
-      null
-    </span>
-  );
+  return <span className={`badge bg-secondary-soft`}>null</span>;
 };
