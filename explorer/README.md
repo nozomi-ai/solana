@@ -81,3 +81,7 @@ blockchain through light clients, third party interfaces, and/or wallet
 software.
 
 # Code Structure
+
+
+
+![code-structure](https://user-images.githubusercontent.com/59670962/196238604-d09058a2-0811-4ff2-b87a-f4be7f92b922.png)
