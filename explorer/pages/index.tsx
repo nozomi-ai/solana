@@ -1,23 +1,27 @@
 import React from "react";
-import { TableCardBody } from "components/common/TableCardBody";
-import { Slot } from "components/common/Slot";
+import { TableCardBody } from "src/components/common/TableCardBody";
+import { Slot } from "src/components/common/Slot";
 import {
   ClusterStatsStatus,
   useDashboardInfo,
   usePerformanceInfo,
   useStatsProvider,
-} from "providers/stats/solanaClusterStats";
-import { abbreviatedNumber, lamportsToSol, slotsToHumanString } from "utils";
-import { ClusterStatus, useCluster } from "providers/cluster";
-import { LiveTransactionStatsCard } from "components/LiveTransactionStatsCard";
-import { displayTimestampWithoutDate } from "utils/date";
-import { Status, useFetchSupply, useSupply } from "providers/supply";
-import { ErrorCard } from "components/common/ErrorCard";
-import { LoadingCard } from "components/common/LoadingCard";
-import { useVoteAccounts } from "providers/accounts/vote-accounts";
-import { CoingeckoStatus, useCoinGecko } from "utils/coingecko";
-import { Epoch } from "components/common/Epoch";
-import { TimestampToggle } from "components/common/TimestampToggle";
+} from "src/providers/stats/solanaClusterStats";
+import {
+  abbreviatedNumber,
+  lamportsToSol,
+  slotsToHumanString,
+} from "src/utils";
+import { ClusterStatus, useCluster } from "src/providers/cluster";
+import { LiveTransactionStatsCard } from "src/components/LiveTransactionStatsCard";
+import { displayTimestampWithoutDate } from "src/utils/date";
+import { Status, useFetchSupply, useSupply } from "src/providers/supply";
+import { ErrorCard } from "src/components/common/ErrorCard";
+import { LoadingCard } from "src/components/common/LoadingCard";
+import { useVoteAccounts } from "src/providers/accounts/vote-accounts";
+import { CoingeckoStatus, useCoinGecko } from "src/utils/coingecko";
+import { Epoch } from "src/components/common/Epoch";
+import { TimestampToggle } from "src/components/common/TimestampToggle";
 
 const CLUSTER_STATS_TIMEOUT = 5000;
 
@@ -324,3 +328,5 @@ export function StatsNotReady({ error }: { error: boolean }) {
     </div>
   );
 }
+
+export default ClusterStatsPage;

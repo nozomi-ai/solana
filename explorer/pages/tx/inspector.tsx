@@ -1,28 +1,32 @@
 import React from "react";
+import { useRouter } from "next/router";
 import { PACKET_DATA_SIZE, VersionedMessage } from "@solana/web3.js";
 
-import { TableCardBody } from "components/common/TableCardBody";
-import { SolBalance } from "components/common/SolBalance";
-import { useQuery } from "utils/url";
-import { useHistory, useLocation } from "react-router";
+import { TableCardBody } from "src/components/common/TableCardBody";
+import { SolBalance } from "src/components/common/SolBalance";
+import { useQuery } from "src/utils/url";
 import {
   useFetchRawTransaction,
   useRawTransactionDetails,
-} from "providers/transactions/raw";
-import { FetchStatus } from "providers/cache";
-import { LoadingCard } from "components/common/LoadingCard";
-import { ErrorCard } from "components/common/ErrorCard";
-import { TransactionSignatures } from "./SignaturesCard";
-import { AccountsCard } from "./AccountsCard";
-import { AddressTableLookupsCard } from "./AddressTableLookupsCard";
+} from "src/providers/transactions/raw";
+import { FetchStatus } from "src/providers/cache";
+import { LoadingCard } from "src/components/common/LoadingCard";
+import { ErrorCard } from "src/components/common/ErrorCard";
+import { TransactionSignatures } from "src/components/inspector/SignaturesCard";
+import { AccountsCard } from "src/components/inspector/AccountsCard";
+import { AddressTableLookupsCard } from "src/components/inspector/AddressTableLookupsCard";
 import {
   AddressWithContext,
   createFeePayerValidator,
-} from "./AddressWithContext";
-import { SimulatorCard } from "./SimulatorCard";
-import { MIN_MESSAGE_LENGTH, RawInput } from "./RawInputCard";
-import { InstructionsSection } from "./InstructionsSection";
+} from "src/components/inspector/AddressWithContext";
+import { SimulatorCard } from "src/components/inspector/SimulatorCard";
+import {
+  MIN_MESSAGE_LENGTH,
+  RawInput,
+} from "src/components/inspector/RawInputCard";
+import { InstructionsSection } from "src/components/inspector/InstructionsSection";
 import base58 from "bs58";
+import { dummyUrl } from "src/constants/urls";
 
 export type TransactionData = {
   rawMessage: Uint8Array;
@@ -139,9 +143,13 @@ export function TransactionInspectorPage({
 }) {
   const [transaction, setTransaction] = React.useState<TransactionData>();
   const query = useQuery();
-  const history = useHistory();
-  const location = useLocation();
+  const router = useRouter();
   const [paramString, setParamString] = React.useState<string>();
+
+  const location = React.useMemo(
+    () => new URL(router.asPath, dummyUrl),
+    [router.asPath]
+  );
 
   // Sync message with url search params
   React.useEffect(() => {
@@ -169,16 +177,20 @@ export function TransactionInspectorPage({
       }
 
       if (shouldRefreshUrl) {
-        history.push({ ...location, search: query.toString() });
+        router.push(`${location.pathname}?${query.toString()}`);
       }
     }
-  }, [query, transaction, signature, history, location]);
+  }, [query, transaction, signature, router, location]);
 
   const reset = React.useCallback(() => {
     query.delete("message");
-    history.push({ ...location, search: query.toString() });
+
+    if (query.toString().length > 0)
+      router.push(`${location.pathname}?${query.toString()}`);
+    else router.push(location.pathname);
+
     setTransaction(undefined);
-  }, [query, location, history]);
+  }, [query, location, router]);
 
   // Decode the message url param whenever it changes
   React.useEffect(() => {
@@ -186,7 +198,9 @@ export function TransactionInspectorPage({
 
     const [result, refreshUrl] = decodeUrlParams(query);
     if (refreshUrl) {
-      history.push({ ...location, search: query.toString() });
+      if (query.toString().length > 0)
+        router.push(`${location.pathname}?${query.toString()}`);
+      else router.push(location.pathname);
     }
 
     if (typeof result === "string") {
@@ -194,7 +208,7 @@ export function TransactionInspectorPage({
     } else {
       setTransaction(result);
     }
-  }, [query, transaction, signature, history, location]);
+  }, [query, transaction, signature, router, location]);
 
   return (
     <div className="container mt-4">
@@ -223,12 +237,19 @@ function PermalinkView({
   const details = useRawTransactionDetails(signature);
   const fetchTransaction = useFetchRawTransaction();
   const refreshTransaction = () => fetchTransaction(signature);
-  const history = useHistory();
-  const location = useLocation();
+  const router = useRouter();
   const transaction = details?.data?.raw;
+
+  const location = React.useMemo(
+    () => new URL(router.asPath, dummyUrl),
+    [router.asPath]
+  );
+
   const reset = React.useCallback(() => {
-    history.push({ ...location, pathname: "/tx/inspector" });
-  }, [history, location]);
+    if (location.search.length > 0)
+      router.push(`/tx/inspector${location.search}`);
+    else router.push("/tx/inspector");
+  }, [router, location]);
 
   // Fetch details on load
   React.useEffect(() => {
@@ -371,3 +392,5 @@ function OverviewCard({
     </>
   );
 }
+
+export default TransactionInspectorPage;

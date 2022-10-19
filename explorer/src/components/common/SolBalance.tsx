@@ -1,5 +1,5 @@
 import React from "react";
-import { lamportsToSolString } from "utils";
+import { lamportsToSolString } from "src/utils";
 
 export function SolBalance({
   lamports,

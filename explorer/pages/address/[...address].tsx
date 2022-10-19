@@ -1,60 +1,62 @@
+import React, { Suspense } from "react";
+import Image from "next/image";
+import { useRouter } from "next/router";
 import { PublicKey } from "@solana/web3.js";
-import { AnchorAccountCard } from "components/account/AnchorAccountCard";
-import { AnchorProgramCard } from "components/account/AnchorProgramCard";
-import { BlockhashesCard } from "components/account/BlockhashesCard";
-import { ConfigAccountSection } from "components/account/ConfigAccountSection";
-import { DomainsCard } from "components/account/DomainsCard";
-import { TokenInstructionsCard } from "components/account/history/TokenInstructionsCard";
-import { TokenTransfersCard } from "components/account/history/TokenTransfersCard";
-import { TransactionHistoryCard } from "components/account/history/TransactionHistoryCard";
-import { MetaplexMetadataCard } from "components/account/MetaplexMetadataCard";
-import { MetaplexNFTAttributesCard } from "components/account/MetaplexNFTAttributesCard";
-import { MetaplexNFTHeader } from "components/account/MetaplexNFTHeader";
-import { NonceAccountSection } from "components/account/NonceAccountSection";
-import { OwnedTokensCard } from "components/account/OwnedTokensCard";
-import { RewardsCard } from "components/account/RewardsCard";
-import { SecurityCard } from "components/account/SecurityCard";
-import { SlotHashesCard } from "components/account/SlotHashesCard";
-import { StakeAccountSection } from "components/account/StakeAccountSection";
-import { StakeHistoryCard } from "components/account/StakeHistoryCard";
-import { SysvarAccountSection } from "components/account/SysvarAccountSection";
-import { TokenAccountSection } from "components/account/TokenAccountSection";
-import { TokenHistoryCard } from "components/account/TokenHistoryCard";
-import { TokenLargestAccountsCard } from "components/account/TokenLargestAccountsCard";
-import { UnknownAccountCard } from "components/account/UnknownAccountCard";
-import { UpgradeableLoaderAccountSection } from "components/account/UpgradeableLoaderAccountSection";
-import { VoteAccountSection } from "components/account/VoteAccountSection";
-import { VotesCard } from "components/account/VotesCard";
-import { ErrorCard } from "components/common/ErrorCard";
-import { Identicon } from "components/common/Identicon";
-import { LoadingCard } from "components/common/LoadingCard";
+import { NavLink } from "src/components/NavLink";
+import { AnchorAccountCard } from "src/components/account/AnchorAccountCard";
+import { AnchorProgramCard } from "src/components/account/AnchorProgramCard";
+import { BlockhashesCard } from "src/components/account/BlockhashesCard";
+import { ConfigAccountSection } from "src/components/account/ConfigAccountSection";
+import { DomainsCard } from "src/components/account/DomainsCard";
+import { TokenInstructionsCard } from "src/components/account/history/TokenInstructionsCard";
+import { TokenTransfersCard } from "src/components/account/history/TokenTransfersCard";
+import { TransactionHistoryCard } from "src/components/account/history/TransactionHistoryCard";
+import { MetaplexMetadataCard } from "src/components/account/MetaplexMetadataCard";
+import { MetaplexNFTAttributesCard } from "src/components/account/MetaplexNFTAttributesCard";
+import { MetaplexNFTHeader } from "src/components/account/MetaplexNFTHeader";
+import { NonceAccountSection } from "src/components/account/NonceAccountSection";
+import { OwnedTokensCard } from "src/components/account/OwnedTokensCard";
+import { RewardsCard } from "src/components/account/RewardsCard";
+import { SecurityCard } from "src/components/account/SecurityCard";
+import { SlotHashesCard } from "src/components/account/SlotHashesCard";
+import { StakeAccountSection } from "src/components/account/StakeAccountSection";
+import { StakeHistoryCard } from "src/components/account/StakeHistoryCard";
+import { SysvarAccountSection } from "src/components/account/SysvarAccountSection";
+import { TokenAccountSection } from "src/components/account/TokenAccountSection";
+import { TokenHistoryCard } from "src/components/account/TokenHistoryCard";
+import { TokenLargestAccountsCard } from "src/components/account/TokenLargestAccountsCard";
+import { UnknownAccountCard } from "src/components/account/UnknownAccountCard";
+import { UpgradeableLoaderAccountSection } from "src/components/account/UpgradeableLoaderAccountSection";
+import { VoteAccountSection } from "src/components/account/VoteAccountSection";
+import { VotesCard } from "src/components/account/VotesCard";
+import { ErrorCard } from "src/components/common/ErrorCard";
+import { Identicon } from "src/components/common/Identicon";
+import { LoadingCard } from "src/components/common/LoadingCard";
 import {
   Account,
   TokenProgramData,
   useAccountInfo,
   useFetchAccountInfo,
   useMintAccountInfo,
-} from "providers/accounts";
-import { useFlaggedAccounts } from "providers/accounts/flagged-accounts";
-import isMetaplexNFT from "providers/accounts/utils/isMetaplexNFT";
-import { useAnchorProgram } from "providers/anchor";
-import { CacheEntry, FetchStatus } from "providers/cache";
-import { ClusterStatus, useCluster } from "providers/cluster";
-import { useTokenRegistry } from "providers/mints/token-registry";
-import React, { Suspense } from "react";
-import { NavLink, Redirect, useLocation } from "react-router-dom";
-import { clusterPath } from "utils/url";
-import { NFTokenAccountHeader } from "../components/account/nftoken/NFTokenAccountHeader";
-import { NFTokenAccountSection } from "../components/account/nftoken/NFTokenAccountSection";
-import { NFTokenCollectionNFTGrid } from "../components/account/nftoken/NFTokenCollectionNFTGrid";
-import { NFTOKEN_ADDRESS } from "../components/account/nftoken/nftoken";
+} from "src/providers/accounts";
+import { useFlaggedAccounts } from "src/providers/accounts/flagged-accounts";
+import isMetaplexNFT from "src/providers/accounts/utils/isMetaplexNFT";
+import { useAnchorProgram } from "src/providers/anchor";
+import { CacheEntry, FetchStatus } from "src/providers/cache";
+import { ClusterStatus, useCluster } from "src/providers/cluster";
+import { useTokenRegistry } from "src/providers/mints/token-registry";
+import { clusterPath } from "src/utils/url";
+import { NFTokenAccountHeader } from "src/components/account/nftoken/NFTokenAccountHeader";
+import { NFTokenAccountSection } from "src/components/account/nftoken/NFTokenAccountSection";
+import { NFTokenCollectionNFTGrid } from "src/components/account/nftoken/NFTokenCollectionNFTGrid";
+import { NFTOKEN_ADDRESS } from "src/components/account/nftoken/nftoken";
 import {
   isNFTokenAccount,
   parseNFTokenCollectionAccount,
-} from "../components/account/nftoken/isNFTokenAccount";
-import { isAddressLookupTableAccount } from "components/account/address-lookup-table/types";
-import { AddressLookupTableAccountSection } from "components/account/address-lookup-table/AddressLookupTableAccountSection";
-import { LookupTableEntriesCard } from "components/account/address-lookup-table/LookupTableEntriesCard";
+} from "src/components/account/nftoken/isNFTokenAccount";
+import { isAddressLookupTableAccount } from "src/components/account/address-lookup-table/types";
+import { AddressLookupTableAccountSection } from "src/components/account/address-lookup-table/AddressLookupTableAccountSection";
+import { LookupTableEntriesCard } from "src/components/account/address-lookup-table/LookupTableEntriesCard";
 
 const IDENTICON_WIDTH = 64;
 
@@ -159,10 +161,21 @@ const TOKEN_TABS_HIDDEN = [
   "config",
 ];
 
-type Props = { address: string; tab?: string };
-export function AccountDetailsPage({ address, tab }: Props) {
+export function AccountDetailsPage() {
   const fetchAccount = useFetchAccountInfo();
   const { status } = useCluster();
+  const router = useRouter();
+  const { address: queryParams } = router.query;
+
+  let address = "";
+  let tab: string | undefined;
+
+  if (queryParams) {
+    const [receivedAddress, receivedTab] = queryParams;
+    address = receivedAddress;
+    tab = receivedTab;
+  }
+
   const info = useAccountInfo(address);
   let pubkey: PublicKey | undefined;
 
@@ -244,16 +257,17 @@ export function AccountHeader({
           <div className="alert alert-warning alert-scam" role="alert">
             Warning! Token names and logos are not unique. This token may have
             spoofed its name and logo to look like another token. Verify the
-            token's mint address to ensure it is correct.
+            token&apos;s mint address to ensure it is correct.
           </div>
         )}
         <div className="col-auto">
-          <div className="avatar avatar-lg header-avatar-top">
+          <div className="avatar-img border border-4 border-body">
             {token?.logoURI ? (
-              <img
-                src={token.logoURI}
+              <Image
+                src={`/api/image-proxy?imageUrl=${token.logoURI}`}
                 alt="token logo"
-                className="avatar-img rounded-circle border border-4 border-body"
+                layout="fill"
+                className="rounded-circle"
               />
             ) : (
               <Identicon
@@ -292,7 +306,7 @@ function DetailsSections({
 }) {
   const fetchAccount = useFetchAccountInfo();
   const address = pubkey.toBase58();
-  const location = useLocation();
+  const router = useRouter();
   const { flaggedAccounts } = useFlaggedAccounts();
 
   if (!info || info.status === FetchStatus.Fetching) {
@@ -305,7 +319,7 @@ function DetailsSections({
   }
 
   const account = info.data;
-  const tabComponents = getTabs(pubkey, account).concat(
+  const tabComponents = getTabs(pubkey, account, router.asPath).concat(
     getAnchorTabs(pubkey, account)
   );
 
@@ -315,7 +329,8 @@ function DetailsSections({
     tabComponents.filter((tabComponent) => tabComponent.tab.slug === tab)
       .length === 0
   ) {
-    return <Redirect to={{ ...location, pathname: `/address/${address}` }} />;
+    router.push(clusterPath(`/address/${address}`, router.asPath));
+    return null;
   } else if (tab) {
     moreTab = tab as MoreTabs;
   }
@@ -534,7 +549,11 @@ function MoreSection({
   );
 }
 
-function getTabs(pubkey: PublicKey, account: Account): TabComponent[] {
+function getTabs(
+  pubkey: PublicKey,
+  account: Account,
+  routerPath: string
+): TabComponent[] {
   const address = pubkey.toBase58();
   const data = account.details?.data;
   const tabs: Tab[] = [
@@ -613,11 +632,11 @@ function getTabs(pubkey: PublicKey, account: Account): TabComponent[] {
       component: (
         <li key={tab.slug} className="nav-item">
           <NavLink
-            className="nav-link"
-            to={clusterPath(`/address/${address}${tab.path}`)}
-            exact
+            activeClassName="active"
+            href={clusterPath(`/address/${address}${tab.path}`, routerPath)}
+            scroll={false}
           >
-            {tab.title}
+            <span className="nav-link">{tab.title}</span>
           </NavLink>
         </li>
       ),
@@ -676,6 +695,7 @@ function AnchorProgramLink({
   pubkey: PublicKey;
 }) {
   const { url } = useCluster();
+  const router = useRouter();
   const anchorProgram = useAnchorProgram(pubkey.toString() ?? "", url);
 
   if (!anchorProgram) {
@@ -685,11 +705,10 @@ function AnchorProgramLink({
   return (
     <li key={tab.slug} className="nav-item">
       <NavLink
-        className="nav-link"
-        to={clusterPath(`/address/${address}${tab.path}`)}
-        exact
+        activeClassName="active"
+        href={clusterPath(`/address/${address}${tab.path}`, router.asPath)}
       >
-        {tab.title}
+        <span className="nav-link">{tab.title}</span>
       </NavLink>
     </li>
   );
@@ -705,6 +724,7 @@ function AccountDataLink({
   programId: PublicKey | undefined;
 }) {
   const { url } = useCluster();
+  const router = useRouter();
   const accountAnchorProgram = useAnchorProgram(
     programId?.toString() ?? "",
     url
@@ -717,12 +737,13 @@ function AccountDataLink({
   return (
     <li key={tab.slug} className="nav-item">
       <NavLink
-        className="nav-link"
-        to={clusterPath(`/address/${address}${tab.path}`)}
-        exact
+        activeClassName="active"
+        href={clusterPath(`/address/${address}${tab.path}`, router.asPath)}
       >
-        {tab.title}
+        <span className="nav-link">{tab.title}</span>
       </NavLink>
     </li>
   );
 }
+
+export default AccountDetailsPage;

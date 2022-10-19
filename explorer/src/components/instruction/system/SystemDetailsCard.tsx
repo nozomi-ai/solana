@@ -19,9 +19,9 @@ import { NonceWithdrawDetailsCard } from "./NonceWithdrawDetailsCard";
 import { NonceAuthorizeDetailsCard } from "./NonceAuthorizeDetailsCard";
 import { TransferWithSeedDetailsCard } from "./TransferWithSeedDetailsCard";
 import { UpgradeNonceDetailsCard } from "./UpgradeNonceDetailsCard";
-import { ParsedInfo } from "validators";
+import { ParsedInfo } from "src/validators";
 import { create } from "superstruct";
-import { reportError } from "utils/sentry";
+import { reportError } from "src/utils/sentry";
 import {
   CreateAccountInfo,
   CreateAccountWithSeedInfo,

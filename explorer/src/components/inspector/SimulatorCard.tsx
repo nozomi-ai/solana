@@ -4,9 +4,9 @@ import {
   VersionedMessage,
   VersionedTransaction,
 } from "@solana/web3.js";
-import { useCluster } from "providers/cluster";
-import { InstructionLogs, parseProgramLogs } from "utils/program-logs";
-import { ProgramLogsCardBody } from "components/ProgramLogsCardBody";
+import { useCluster } from "src/providers/cluster";
+import { InstructionLogs, parseProgramLogs } from "src/utils/program-logs";
+import { ProgramLogsCardBody } from "src/components/ProgramLogsCardBody";
 
 export function SimulatorCard({ message }: { message: VersionedMessage }) {
   const { cluster, url } = useCluster();

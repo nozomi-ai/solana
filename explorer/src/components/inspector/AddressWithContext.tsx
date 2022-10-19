@@ -1,15 +1,15 @@
 import React from "react";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { Address } from "components/common/Address";
+import { Address } from "src/components/common/Address";
 import {
   Account,
   useAccountInfo,
   useAddressLookupTable,
   useFetchAccountInfo,
-} from "providers/accounts";
-import { ClusterStatus, useCluster } from "providers/cluster";
-import { addressLabel } from "utils/tx";
-import { lamportsToSolString } from "utils";
+} from "src/providers/accounts";
+import { ClusterStatus, useCluster } from "src/providers/cluster";
+import { addressLabel } from "src/utils/tx";
+import { lamportsToSolString } from "src/utils";
 
 type AccountValidator = (account: Account) => string | undefined;
 
@@ -120,7 +120,7 @@ function AccountInfo({
   if (errorMessage) return <span className="text-warning">{errorMessage}</span>;
 
   if (!info.data.details) {
-    return <span className="text-muted">Account doesn't exist</span>;
+    return <span className="text-muted">Account doesn&apos;t exist</span>;
   }
 
   const owner = info.data.details.owner;

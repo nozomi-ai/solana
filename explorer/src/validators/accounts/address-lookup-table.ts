@@ -1,8 +1,8 @@
 /* eslint-disable @typescript-eslint/no-redeclare */
 
 import { Infer, number, enums, type, array, optional } from "superstruct";
-import { PublicKeyFromString } from "validators/pubkey";
-import { BigIntFromString, NumberFromString } from "validators/number";
+import { PublicKeyFromString } from "src/validators/pubkey";
+import { BigIntFromString, NumberFromString } from "src/validators/number";
 
 export type AddressLookupTableAccountType = Infer<
   typeof AddressLookupTableAccountType

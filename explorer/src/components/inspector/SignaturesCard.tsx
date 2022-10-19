@@ -2,8 +2,8 @@ import React from "react";
 import bs58 from "bs58";
 import * as nacl from "tweetnacl";
 import { PublicKey, VersionedMessage } from "@solana/web3.js";
-import { Signature } from "components/common/Signature";
-import { Address } from "components/common/Address";
+import { Signature } from "src/components/common/Signature";
+import { Address } from "src/components/common/Address";
 
 export function TransactionSignatures({
   signatures,

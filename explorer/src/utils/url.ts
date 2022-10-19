@@ -1,21 +1,30 @@
-import { useLocation } from "react-router-dom";
-import { Location } from "history";
+import { useRouter } from "next/router";
+import { dummyUrl } from "src/constants/urls";
 
 export function useQuery() {
-  return new URLSearchParams(useLocation().search);
+  const router = useRouter();
+
+  if (typeof window === "undefined") return new URLSearchParams();
+
+  const location = new URL(router.asPath, dummyUrl);
+  return new URLSearchParams(location.search);
 }
 
-export const clusterPath = (pathname: string, params?: URLSearchParams) => {
-  return (location: Location) => ({
-    ...pickClusterParams(location, params),
-    pathname,
-  });
+export const clusterPath = (
+  pathname: string,
+  routerPath: string,
+  params?: URLSearchParams
+): string => {
+  const location = new URL(routerPath, dummyUrl);
+  const newParams = pickClusterParams(location, params);
+
+  return newParams.length > 0 ? `${pathname}?${newParams}` : pathname;
 };
 
 export function pickClusterParams(
-  location: Location,
+  location: URL,
   newParams?: URLSearchParams
-): Location {
+): string {
   const urlParams = new URLSearchParams(location.search);
   const cluster = urlParams.get("cluster");
   const customUrl = urlParams.get("customUrl");
@@ -25,9 +34,5 @@ export function pickClusterParams(
   if (cluster) newParams.set("cluster", cluster);
   if (customUrl) newParams.set("customUrl", customUrl);
 
-  return {
-    ...location,
-    hash: "",
-    search: newParams.toString(),
-  };
+  return newParams.toString();
 }

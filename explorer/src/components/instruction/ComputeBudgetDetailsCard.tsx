@@ -5,11 +5,10 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import { InstructionCard } from "./InstructionCard";
-import { SolBalance } from "components/common/SolBalance";
-import { Address } from "components/common/Address";
-import { reportError } from "utils/sentry";
-import { microLamportsToLamportsString } from "utils";
-import { useCluster } from "providers/cluster";
+import { microLamportsToLamportsString, SolBalance } from "src/utils";
+import { Address } from "src/components/common/Address";
+import { reportError } from "src/utils/sentry";
+import { useCluster } from "src/providers/cluster";
 
 export function ComputeBudgetDetailsCard({
   ix,

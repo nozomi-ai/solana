@@ -1,14 +1,24 @@
 import React from "react";
+import { useRouter } from "next/router";
 
-import { ErrorCard } from "components/common/ErrorCard";
-import { BlockOverviewCard } from "components/block/BlockOverviewCard";
+import { ErrorCard } from "src/components/common/ErrorCard";
+import { BlockOverviewCard } from "src/components/block/BlockOverviewCard";
 
 // IE11 doesn't support Number.MAX_SAFE_INTEGER
 const MAX_SAFE_INTEGER = 9007199254740991;
 
-type Props = { slot: string; tab?: string };
+export function BlockDetailsPage() {
+  const router = useRouter();
+  const { slot: queryParams } = router.query;
+  let slot = "";
+  let tab: string | undefined;
 
-export function BlockDetailsPage({ slot, tab }: Props) {
+  if (queryParams) {
+    const [receivedSlot, receivedTab] = queryParams;
+    slot = receivedSlot;
+    tab = receivedTab;
+  }
+
   const slotNumber = Number(slot);
   let output = <ErrorCard text={`Block ${slot} is not valid`} />;
 
@@ -32,3 +42,5 @@ export function BlockDetailsPage({ slot, tab }: Props) {
     </div>
   );
 }
+
+export default BlockDetailsPage;

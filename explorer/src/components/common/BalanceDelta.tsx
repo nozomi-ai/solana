@@ -1,6 +1,6 @@
 import React from "react";
 import { BigNumber } from "bignumber.js";
-import { SolBalance } from "components/common/SolBalance";
+import { SolBalance } from "src/components/common/SolBalance";
 
 export function BalanceDelta({
   delta,

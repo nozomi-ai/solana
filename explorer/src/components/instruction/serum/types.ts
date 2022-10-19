@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-redeclare */
-
 import { decodeInstruction, MARKETS } from "@project-serum/serum";
 import {
   AccountMeta,
@@ -7,7 +5,7 @@ import {
   TransactionInstruction,
 } from "@solana/web3.js";
 import { enums, number, type, Infer, create } from "superstruct";
-import { BigIntFromString } from "validators/number";
+import { BigIntFromString } from "src/validators/number";
 
 const SERUM_PROGRAM_IDS = [
   "4ckmDgGdxQoPDLUkDT3vHgSAkzA3QRdNq5ywwY4sUSJn",

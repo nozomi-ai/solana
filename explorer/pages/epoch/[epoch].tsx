@@ -1,17 +1,20 @@
 import React from "react";
+import { useRouter } from "next/router";
 
-import { ErrorCard } from "components/common/ErrorCard";
-import { ClusterStatus, useCluster } from "providers/cluster";
-import { LoadingCard } from "components/common/LoadingCard";
-import { TableCardBody } from "components/common/TableCardBody";
-import { Epoch } from "components/common/Epoch";
-import { Slot } from "components/common/Slot";
-import { useEpoch, useFetchEpoch } from "providers/epoch";
-import { displayTimestampUtc } from "utils/date";
-import { FetchStatus } from "providers/cache";
+import { ErrorCard } from "src/components/common/ErrorCard";
+import { ClusterStatus, useCluster } from "src/providers/cluster";
+import { LoadingCard } from "src/components/common/LoadingCard";
+import { TableCardBody } from "src/components/common/TableCardBody";
+import { Epoch } from "src/components/common/Epoch";
+import { Slot } from "src/components/common/Slot";
+import { useEpoch, useFetchEpoch } from "src/providers/epoch";
+import { displayTimestampUtc } from "src/utils/date";
+import { FetchStatus } from "src/providers/cache";
 
-type Props = { epoch: string };
-export function EpochDetailsPage({ epoch }: Props) {
+export function EpochDetailsPage() {
+  const router = useRouter();
+  const { epoch } = router.query;
+
   let output;
   if (isNaN(Number(epoch))) {
     output = <ErrorCard text={`Epoch ${epoch} is not valid`} />;
@@ -162,3 +165,5 @@ function EpochOverviewCard({ epoch }: OverviewProps) {
     </>
   );
 }
+
+export default EpochDetailsPage;

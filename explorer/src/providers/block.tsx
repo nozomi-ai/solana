@@ -1,6 +1,6 @@
 import React from "react";
 import * as Sentry from "@sentry/react";
-import * as Cache from "providers/cache";
+import * as Cache from "src/providers/cache";
 import { Connection, PublicKey, VersionedBlockResponse } from "@solana/web3.js";
 import { useCluster, Cluster } from "./cluster";
 
