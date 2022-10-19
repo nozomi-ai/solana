@@ -1,9 +1,8 @@
 import React from "react";
 
 import { AddressLookupTableAccount, PublicKey } from "@solana/web3.js";
-import { Address } from "src/components/common/Address";
-import { AddressLookupTableAccountInfo } from "src/validators/accounts/address-lookup-table";
-
+import { Address } from "components/common/Address";
+import { AddressLookupTableAccountInfo } from "validators/accounts/address-lookup-table";
 
 export function LookupTableEntriesCard(
   params:

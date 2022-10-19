@@ -1,5 +1,7 @@
-import { enums, nullable, number, type, string, Infer } from "superstruct";
-import { PublicKeyFromString } from "src/validators/pubkey";
+/* eslint-disable @typescript-eslint/no-redeclare */
+
+import { enums, number, type, string, Infer, optional } from "superstruct";
+import { PublicKeyFromString } from "validators/pubkey";
 
 export type InitializeBufferInfo = Infer<typeof InitializeBufferInfo>;
 export const InitializeBufferInfo = type({

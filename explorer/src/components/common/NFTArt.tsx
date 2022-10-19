@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import { Stream } from "@cloudflare/stream-react";
 import { PublicKey } from "@solana/web3.js";
 import {
@@ -9,7 +8,8 @@ import {
   MetadataJsonFile,
 } from "@metaplex/js";
 import ContentLoader from "react-content-loader";
-import { getLast } from "src/utils";
+import ErrorLogo from "img/logos-solana/dark-solana-logo.svg";
+import { getLast } from "utils";
 
 export const MAX_TIME_LOADING_IMAGE = 5000; /* 5 seconds */
 
@@ -27,12 +27,7 @@ const LoadingPlaceholder = () => (
 );
 
 const ErrorPlaceHolder = () => (
-  <Image
-    src="/img/logos-solana/dark-solana-logo.svg"
-    width={120}
-    height={120}
-    alt="Solana Logo"
-  />
+  <img src={ErrorLogo} width="120" height="120" alt="Solana Logo" />
 );
 
 const ViewOriginalArtContentLink = ({ src }: { src: string }) => {
@@ -51,8 +46,6 @@ export const CachedImageContent = ({ uri }: { uri?: string }) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [showError, setShowError] = useState<boolean>(false);
   const [timeout, setTimeout] = useState<NodeJS.Timeout | undefined>(undefined);
-
-  useEffect(() => setIsLoading(true), []);
 
   useEffect(() => {
     // Set the timeout if we don't have a valid uri
@@ -85,25 +78,21 @@ export const CachedImageContent = ({ uri }: { uri?: string }) => {
         <>
           {isLoading && <LoadingPlaceholder />}
           <div className={`${isLoading ? "d-none" : "d-block"}`}>
-            <div
-              className={`position-relative mx-auto ${
-                isLoading ? "d-none" : "d-block"
-              }`}
-              style={{ width: 150, minHeight: 150, maxHeight: 200 }}
-            >
-              <Image
-                src={cachedBlob ?? `/api/image-proxy?imageUrl=${uri}`}
-                alt={"nft"}
-                layout="fill"
-                className="rounded"
-                onLoad={() => {
-                  setIsLoading(false);
-                }}
-                onError={() => {
-                  setShowError(true);
-                }}
-              />
-            </div>
+            <img
+              className={`rounded mx-auto ${isLoading ? "d-none" : "d-block"}`}
+              src={cachedBlob}
+              alt={"nft"}
+              style={{
+                width: 150,
+                maxHeight: 200,
+              }}
+              onLoad={() => {
+                setIsLoading(false);
+              }}
+              onError={() => {
+                setShowError(true);
+              }}
+            />
             {uri && <ViewOriginalArtContentLink src={uri} />}
           </div>
         </>
@@ -137,10 +126,14 @@ const VideoArtContent = ({
         <Stream
           src={likelyVideo.replace("https://watch.videodelivery.net/", "")}
           loop={true}
-          height="180"
-          width="320"
+          height={180}
+          width={320}
           controls={false}
-          className="rounded"
+          style={{ borderRadius: 12 }}
+          videoDimensions={{
+            videoWidth: 320,
+            videoHeight: 180,
+          }}
           autoplay={true}
           muted={true}
         />

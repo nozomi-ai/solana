@@ -1,12 +1,11 @@
 import React from "react";
-import Link from "next/link";
-import { useRouter } from "next/router";
+import { Link } from "react-router-dom";
 import { PublicKey } from "@solana/web3.js";
-import { clusterPath } from "src/utils/url";
-import { displayAddress } from "src/utils/tx";
-import { useCluster } from "src/providers/cluster";
+import { clusterPath } from "utils/url";
+import { displayAddress } from "utils/tx";
+import { useCluster } from "providers/cluster";
 import { Copyable } from "./Copyable";
-import { useTokenRegistry } from "src/providers/mints/token-registry";
+import { useTokenRegistry } from "providers/mints/token-registry";
 import { useState, useEffect } from "react";
 import { Connection, programs } from "@metaplex/js";
 
@@ -36,7 +35,6 @@ export function Address({
   const address = pubkey.toBase58();
   const { tokenRegistry } = useTokenRegistry();
   const { cluster } = useCluster();
-  const router = useRouter();
 
   if (
     truncateUnknown &&
@@ -65,12 +63,10 @@ export function Address({
       <span className="font-monospace">
         {link ? (
           <Link
-            href={clusterPath(`/address/${address}`, router.asPath)}
-            passHref
+            className={truncate ? "text-truncate address-truncate" : ""}
+            to={clusterPath(`/address/${address}`)}
           >
-            <a className={truncate ? "text-truncate address-truncate" : ""}>
-              {addressLabel}
-            </a>
+            {addressLabel}
           </Link>
         ) : (
           <span className={truncate ? "text-truncate address-truncate" : ""}>

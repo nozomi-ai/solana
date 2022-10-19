@@ -6,10 +6,8 @@ import React, {
   useContext,
   useEffect,
   useRef,
-  useMemo,
 } from "react";
-import { useRouter } from "next/router";
-import { dummyUrl } from "src/constants/urls";
+import { useLocation } from "react-router-dom";
 
 type URLFragment = string;
 
@@ -30,12 +28,7 @@ const ScrollAnchorContext = createContext<RegisterScrollAnchorFn>(
 export const ScrollAnchorProvider =
   typeof WeakRef !== "undefined"
     ? function ScrollAnchorProvider({ children }: { children: ReactNode }) {
-        const router = useRouter();
-        const location = useMemo(
-          () => new URL(router.asPath, dummyUrl),
-          [router.asPath]
-        );
-
+        const location = useLocation();
         const registeredScrollTargets = useRef<{
           [fragment: URLFragment]: WeakRef<HTMLElement>[] | undefined;
         }>({});

@@ -1,12 +1,11 @@
 import React from "react";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { SolBalance } from "src/components/common/SolBalance";
-import { Account, useFetchAccountInfo } from "src/providers/accounts";
-import { Address } from "src/components/common/Address";
+import { TableCardBody } from "components/common/TableCardBody";
+import { SolBalance } from "components/common/SolBalance";
+import { Account, useFetchAccountInfo } from "providers/accounts";
+import { Address } from "components/common/Address";
 import { AddressLookupTableAccount } from "@solana/web3.js";
-import { Slot } from "src/components/common/Slot";
-import { AddressLookupTableAccountInfo } from "src/validators/accounts/address-lookup-table";
-
+import { Slot } from "components/common/Slot";
+import { AddressLookupTableAccountInfo } from "validators/accounts/address-lookup-table";
 
 export function AddressLookupTableAccountSection(
   params:

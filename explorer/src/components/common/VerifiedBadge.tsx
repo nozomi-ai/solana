@@ -1,4 +1,4 @@
-import { VerifiableBuild } from "src/utils/program-verification";
+import { VerifiableBuild } from "utils/program-verification";
 
 export function VerifiedBadge({
   verifiableBuild,

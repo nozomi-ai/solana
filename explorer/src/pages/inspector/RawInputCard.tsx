@@ -1,10 +1,9 @@
 import React from "react";
-import { useRouter } from "next/router";
 import { VersionedMessage } from "@solana/web3.js";
-import type { TransactionData } from "pages/tx/inspector";
-import { useQuery } from "src/utils/url";
+import type { TransactionData } from "./InspectorPage";
+import { useQuery } from "utils/url";
+import { useHistory, useLocation } from "react-router";
 import base58 from "bs58";
-import { dummyUrl } from "src/constants/urls";
 
 function deserializeTransaction(bytes: Uint8Array): {
   message: VersionedMessage;
@@ -55,12 +54,8 @@ export function RawInput({
   const [error, setError] = React.useState<string>();
   const [rows, setRows] = React.useState(3);
   const query = useQuery();
-  const router = useRouter();
-
-  const location = React.useMemo(
-    () => new URL(router.asPath, dummyUrl),
-    [router.asPath]
-  );
+  const history = useHistory();
+  const location = useLocation();
 
   const onInput = React.useCallback(() => {
     const base64 = rawTransactionInput.current?.value;
@@ -68,10 +63,10 @@ export function RawInput({
       // Clear url params when input is detected
       if (query.get("message")) {
         query.delete("message");
-        router.push(`${location.pathname}${location.search}`);
+        history.push({ ...location, search: query.toString() });
       } else if (query.get("transaction")) {
         query.delete("transaction");
-        router.push(`${location.pathname}${location.search}`);
+        history.push({ ...location, search: query.toString() });
       }
 
       // Dynamically expand height based on input length
@@ -118,7 +113,7 @@ export function RawInput({
     } else {
       setError(undefined);
     }
-  }, [setTransactionData, router, query, location]);
+  }, [setTransactionData, history, query, location]);
 
   React.useEffect(() => {
     const input = rawTransactionInput.current;
@@ -166,15 +161,12 @@ export function RawInput({
           <li className="mb-2">
             <strong>Rust: </strong>Add <code>base64</code> crate dependency and{" "}
             <code>
-              println!(&quot;{}&quot;,
-              base64::encode(&transaction.message_data()));
+              println!("{}", base64::encode(&transaction.message_data()));
             </code>
           </li>
           <li>
             <strong>JavaScript: </strong>Add{" "}
-            <code>
-              console.log(tx.serializeMessage().toString(&quot;base64&quot;));
-            </code>
+            <code>console.log(tx.serializeMessage().toString("base64"));</code>
           </li>
         </ul>
       </div>

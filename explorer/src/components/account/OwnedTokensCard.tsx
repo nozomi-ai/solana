@@ -1,22 +1,20 @@
 import React from "react";
-import Link from "next/link";
-import { useRouter } from "next/router";
-import Image from "next/image";
 import { PublicKey } from "@solana/web3.js";
-import { FetchStatus } from "src/providers/cache";
+import { FetchStatus } from "providers/cache";
 import {
   useFetchAccountOwnedTokens,
   useAccountOwnedTokens,
   TokenInfoWithPubkey,
-} from "src/providers/accounts/tokens";
-import { ErrorCard } from "src/components/common/ErrorCard";
-import { LoadingCard } from "src/components/common/LoadingCard";
-import { Address } from "src/components/common/Address";
-import { useQuery } from "src/utils/url";
-import { useTokenRegistry } from "src/providers/mints/token-registry";
+} from "providers/accounts/tokens";
+import { ErrorCard } from "components/common/ErrorCard";
+import { LoadingCard } from "components/common/LoadingCard";
+import { Address } from "components/common/Address";
+import { useQuery } from "utils/url";
+import { Link } from "react-router-dom";
+import { Location } from "history";
+import { useTokenRegistry } from "providers/mints/token-registry";
 import { BigNumber } from "bignumber.js";
-import { Identicon } from "src/components/common/Identicon";
-import { dummyUrl } from "src/constants/urls";
+import { Identicon } from "components/common/Identicon";
 
 type Display = "summary" | "detail" | null;
 
@@ -114,14 +112,11 @@ function HoldingsDetailTable({ tokens }: { tokens: TokenInfoWithPubkey[] }) {
         {showLogos && (
           <td className="w-1 p-0 text-center">
             {tokenDetails?.logoURI ? (
-              <div className="position-relative token-icon border border-4 border-gray-dark">
-                <Image
-                  src={`/api/image-proxy?imageUrl=${tokenDetails.logoURI}`}
-                  alt="token icon"
-                  layout="fill"
-                  className="rounded-circle"
-                />
-              </div>
+              <img
+                src={tokenDetails.logoURI}
+                alt="token icon"
+                className="token-icon rounded-circle border border-4 border-gray-dark"
+              />
             ) : (
               <Identicon
                 address={address}
@@ -192,14 +187,11 @@ function HoldingsSummaryTable({ tokens }: { tokens: TokenInfoWithPubkey[] }) {
         {showLogos && (
           <td className="w-1 p-0 text-center">
             {tokenDetails?.logoURI ? (
-              <div className="position-relative token-icon border border-4 border-gray-dark">
-                <Image
-                  src={`/api/image-proxy?imageUrl=${tokenDetails.logoURI}`}
-                  alt="token icon"
-                  layout="fill"
-                  className="rounded-circle"
-                />
-              </div>
+              <img
+                src={tokenDetails.logoURI}
+                alt="token icon"
+                className="token-icon rounded-circle border border-4 border-gray-dark"
+              />
             ) : (
               <Identicon
                 address={mintAddress}
@@ -244,20 +236,17 @@ type DropdownProps = {
 };
 
 const DisplayDropdown = ({ display, toggle, show }: DropdownProps) => {
-  const router = useRouter();
-
-  const buildLocation = (display: Display) => {
-    const location = new URL(router.asPath, dummyUrl);
+  const buildLocation = (location: Location, display: Display) => {
     const params = new URLSearchParams(location.search);
     if (display === null) {
       params.delete("display");
     } else {
       params.set("display", display);
     }
-
-    return params.toString().length > 0
-      ? `${location.pathname}?${params.toString()}`
-      : location.pathname;
+    return {
+      ...location,
+      search: params.toString(),
+    };
   };
 
   const DISPLAY_OPTIONS: Display[] = [null, "detail"];
@@ -275,17 +264,13 @@ const DisplayDropdown = ({ display, toggle, show }: DropdownProps) => {
           return (
             <Link
               key={displayOption || "null"}
-              href={buildLocation(displayOption)}
-              scroll={false}
+              to={(location) => buildLocation(location, displayOption)}
+              className={`dropdown-item${
+                displayOption === display ? " active" : ""
+              }`}
+              onClick={toggle}
             >
-              <span
-                className={`dropdown-item c-pointer${
-                  displayOption === display ? " active" : ""
-                }`}
-                onClick={toggle}
-              >
-                {displayOption === "detail" ? "Detailed" : "Summary"}
-              </span>
+              {displayOption === "detail" ? "Detailed" : "Summary"}
             </Link>
           );
         })}

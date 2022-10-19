@@ -1,37 +1,36 @@
 import React from "react";
-import Link from "next/link";
-import { useRouter } from "next/router";
+import { Link } from "react-router-dom";
 import bs58 from "bs58";
 import {
   useFetchTransactionStatus,
   useTransactionStatus,
   useTransactionDetails,
-} from "src/providers/transactions";
-import { useFetchTransactionDetails } from "src/providers/transactions/parsed";
-import { useCluster, ClusterStatus } from "src/providers/cluster";
+} from "providers/transactions";
+import { useFetchTransactionDetails } from "providers/transactions/parsed";
+import { useCluster, ClusterStatus } from "providers/cluster";
 import {
   TransactionSignature,
   SystemProgram,
   SystemInstruction,
 } from "@solana/web3.js";
-import { SolBalance } from "src/components/common/SolBalance";
-import { ErrorCard } from "src/components/common/ErrorCard";
-import { LoadingCard } from "src/components/common/LoadingCard";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { displayTimestamp } from "src/utils/date";
-import { InfoTooltip } from "src/components/common/InfoTooltip";
-import { Address } from "src/components/common/Address";
-import { Signature } from "src/components/common/Signature";
-import { intoTransactionInstruction } from "src/utils/tx";
-import { FetchStatus } from "src/providers/cache";
-import { Slot } from "src/components/common/Slot";
+import { SolBalance } from "components/common/SolBalance";
+import { ErrorCard } from "components/common/ErrorCard";
+import { LoadingCard } from "components/common/LoadingCard";
+import { TableCardBody } from "components/common/TableCardBody";
+import { displayTimestamp } from "utils/date";
+import { InfoTooltip } from "components/common/InfoTooltip";
+import { Address } from "components/common/Address";
+import { Signature } from "components/common/Signature";
+import { intoTransactionInstruction } from "utils/tx";
+import { FetchStatus } from "providers/cache";
+import { Slot } from "components/common/Slot";
 import { BigNumber } from "bignumber.js";
-import { BalanceDelta } from "src/components/common/BalanceDelta";
-import { TokenBalancesCard } from "src/components/transaction/TokenBalancesCard";
-import { InstructionsSection } from "src/components/transaction/InstructionsSection";
-import { ProgramLogSection } from "src/components/transaction/ProgramLogSection";
-import { clusterPath } from "src/utils/url";
-import { getTransactionInstructionError } from "src/utils/program-err";
+import { BalanceDelta } from "components/common/BalanceDelta";
+import { TokenBalancesCard } from "components/transaction/TokenBalancesCard";
+import { InstructionsSection } from "components/transaction/InstructionsSection";
+import { ProgramLogSection } from "components/transaction/ProgramLogSection";
+import { clusterPath } from "utils/url";
+import { getTransactionInstructionError } from "utils/program-err";
 
 const AUTO_REFRESH_INTERVAL = 2000;
 const ZERO_CONFIRMATION_BAILOUT = 5;
@@ -53,10 +52,7 @@ type AutoRefreshProps = {
   autoRefresh: AutoRefresh;
 };
 
-export function TransactionDetailsPage() {
-  const router = useRouter();
-
-  const raw = router.query.signature as TransactionSignature;
+export function TransactionDetailsPage({ signature: raw }: SignatureProps) {
   let signature: TransactionSignature | undefined;
 
   try {
@@ -125,7 +121,6 @@ function StatusCard({
   signature,
   autoRefresh,
 }: SignatureProps & AutoRefreshProps) {
-  const router = useRouter();
   const fetchStatus = useFetchTransactionStatus();
   const status = useTransactionStatus(signature);
   const details = useTransactionDetails(signature);
@@ -223,11 +218,12 @@ function StatusCard({
     <div className="card">
       <div className="card-header align-items-center">
         <h3 className="card-header-title">Overview</h3>
-        <Link href={clusterPath(`/tx/${signature}/inspect`, router.asPath)}>
-          <div className="btn btn-white btn-sm me-2">
-            <span className="fe fe-settings me-2"></span>
-            Inspect
-          </div>
+        <Link
+          to={clusterPath(`/tx/${signature}/inspect`)}
+          className="btn btn-white btn-sm me-2"
+        >
+          <span className="fe fe-settings me-2"></span>
+          Inspect
         </Link>
         {autoRefresh === AutoRefresh.Active ? (
           <span className="spinner-grow spinner-grow-sm"></span>
@@ -467,5 +463,3 @@ function AccountsCard({ signature }: SignatureProps) {
     </div>
   );
 }
-
-export default TransactionDetailsPage;

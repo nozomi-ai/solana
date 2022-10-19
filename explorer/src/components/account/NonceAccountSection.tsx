@@ -1,13 +1,13 @@
 import React from "react";
-import { Account, useFetchAccountInfo } from "src/providers/accounts";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { Address } from "src/components/common/Address";
-import { NonceAccount } from "src/validators/accounts/nonce";
+import { Account, useFetchAccountInfo } from "providers/accounts";
+import { TableCardBody } from "components/common/TableCardBody";
+import { Address } from "components/common/Address";
+import { NonceAccount } from "validators/accounts/nonce";
 import {
   AccountHeader,
   AccountAddressRow,
   AccountBalanceRow,
-} from "src/components/common/Account";
+} from "components/common/Account";
 
 export function NonceAccountSection({
   account,

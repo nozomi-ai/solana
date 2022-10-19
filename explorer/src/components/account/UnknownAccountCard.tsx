@@ -1,11 +1,11 @@
 import React from "react";
-import { Account } from "src/providers/accounts";
-import { SolBalance } from "src/components/common/SolBalance";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { Address } from "src/components/common/Address";
-import { addressLabel } from "src/utils/tx";
-import { useCluster } from "src/providers/cluster";
-import { useTokenRegistry } from "src/providers/mints/token-registry";
+import { Account } from "providers/accounts";
+import { SolBalance } from "components/common/SolBalance";
+import { TableCardBody } from "components/common/TableCardBody";
+import { Address } from "components/common/Address";
+import { addressLabel } from "utils/tx";
+import { useCluster } from "providers/cluster";
+import { useTokenRegistry } from "providers/mints/token-registry";
 
 export function UnknownAccountCard({ account }: { account: Account }) {
   const { details, lamports } = account;

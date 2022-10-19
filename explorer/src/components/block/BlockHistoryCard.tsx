@@ -1,6 +1,6 @@
 import React from "react";
-import Link from "next/link";
-import { useRouter } from "next/router";
+import { Link, useHistory, useLocation } from "react-router-dom";
+import { Location } from "history";
 import {
   ConfirmedTransactionMeta,
   TransactionSignature,
@@ -8,15 +8,14 @@ import {
   VOTE_PROGRAM_ID,
   VersionedBlockResponse,
 } from "@solana/web3.js";
-import { ErrorCard } from "src/components/common/ErrorCard";
-import { Signature } from "src/components/common/Signature";
-import { Address } from "src/components/common/Address";
-import { clusterPath, pickClusterParams, useQuery } from "src/utils/url";
-import { useCluster } from "src/providers/cluster";
-import { displayAddress } from "src/utils/tx";
-import { parseProgramLogs } from "src/utils/program-logs";
-import { SolBalance } from "src/components/common/SolBalance";
-import { dummyUrl } from "src/constants/urls";
+import { ErrorCard } from "components/common/ErrorCard";
+import { Signature } from "components/common/Signature";
+import { Address } from "components/common/Address";
+import { pickClusterParams, useQuery } from "utils/url";
+import { useCluster } from "providers/cluster";
+import { displayAddress } from "utils/tx";
+import { parseProgramLogs } from "utils/program-logs";
+import { SolBalance } from "components/common/SolBalance";
 
 const PAGE_SIZE = 25;
 
@@ -60,8 +59,8 @@ export function BlockHistoryCard({ block }: { block: VersionedBlockResponse }) {
   const accountFilter = useQueryAccountFilter(query);
   const sortMode = useQuerySort(query);
   const { cluster } = useCluster();
-  const router = useRouter();
-  const location = new URL(router.asPath, dummyUrl);
+  const location = useLocation();
+  const history = useHistory();
 
   const { transactions, invokedPrograms } = React.useMemo(() => {
     const invokedPrograms = new Map<string, number>();
@@ -225,11 +224,7 @@ export function BlockHistoryCard({ block }: { block: VersionedBlockResponse }) {
                   className="text-muted c-pointer"
                   onClick={() => {
                     query.delete("sort");
-                    router.push(
-                      clusterPath(location.pathname, router.asPath, query),
-                      undefined,
-                      { scroll: false }
-                    );
+                    history.push(pickClusterParams(location, query));
                   }}
                 >
                   #
@@ -240,11 +235,7 @@ export function BlockHistoryCard({ block }: { block: VersionedBlockResponse }) {
                   className="text-muted text-end c-pointer"
                   onClick={() => {
                     query.set("sort", "fee");
-                    router.push(
-                      clusterPath(location.pathname, router.asPath, query),
-                      undefined,
-                      { scroll: false }
-                    );
+                    history.push(pickClusterParams(location, query));
                   }}
                 >
                   Fee
@@ -254,11 +245,7 @@ export function BlockHistoryCard({ block }: { block: VersionedBlockResponse }) {
                     className="text-muted text-end c-pointer"
                     onClick={() => {
                       query.set("sort", "compute");
-                      router.push(
-                        clusterPath(location.pathname, router.asPath, query),
-                        undefined,
-                        { scroll: false }
-                      );
+                      history.push(pickClusterParams(location, query));
                     }}
                   >
                     Compute
@@ -389,20 +376,17 @@ const FilterDropdown = ({
   totalTransactionCount,
 }: FilterProps) => {
   const { cluster } = useCluster();
-  const router = useRouter();
-
-  const buildLocation = (filter: string) => {
-    const location = new URL(router.asPath, dummyUrl);
+  const buildLocation = (location: Location, filter: string) => {
     const params = new URLSearchParams(location.search);
     if (filter === HIDE_VOTES) {
       params.delete("filter");
     } else {
       params.set("filter", filter);
     }
-
-    return params.toString().length > 0
-      ? `${location.pathname}?${params.toString()}`
-      : location.pathname;
+    return {
+      ...location,
+      search: params.toString(),
+    };
   };
 
   let defaultFilterOption: FilterOption = {
@@ -466,17 +450,13 @@ const FilterDropdown = ({
           return (
             <Link
               key={programId}
-              href={buildLocation(programId)}
-              scroll={false}
+              to={(location: Location) => buildLocation(location, programId)}
+              className={`dropdown-item${
+                programId === filter ? " active" : ""
+              }`}
+              onClick={toggle}
             >
-              <span
-                className={`dropdown-item c-pointer${
-                  programId === filter ? " active" : ""
-                }`}
-                onClick={toggle}
-              >
-                {`${name} (${transactionCount})`}
-              </span>
+              {`${name} (${transactionCount})`}
             </Link>
           );
         })}

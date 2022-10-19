@@ -2,7 +2,7 @@ import React from "react";
 import {
   RecentBlockhashesInfo,
   RecentBlockhashesEntry,
-} from "src/validators/accounts/sysvar";
+} from "validators/accounts/sysvar";
 
 export function BlockhashesCard({
   blockhashes,

@@ -9,7 +9,7 @@ $path-to-img: "/img/dashkit" !default;
 $path-to-fonts: "/fonts" !default;
 
  // Icon font
-@import "public/fonts/feather/feather";
+@import "../fonts/feather/feather";
 
 // Bootstrap functions
 @import '~bootstrap/scss/functions';

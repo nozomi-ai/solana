@@ -1,11 +1,11 @@
 import React from "react";
 import { PublicKey, VersionedMessage } from "@solana/web3.js";
-import { TableCardBody } from "src/components/common/TableCardBody";
+import { TableCardBody } from "components/common/TableCardBody";
 import {
   AddressFromLookupTableWithContext,
   AddressWithContext,
 } from "./AddressWithContext";
-import { ErrorCard } from "src/components/common/ErrorCard";
+import { ErrorCard } from "components/common/ErrorCard";
 
 export function AccountsCard({ message }: { message: VersionedMessage }) {
   const [expanded, setExpanded] = React.useState(true);

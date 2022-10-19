@@ -1,21 +1,20 @@
 import React from "react";
-import { useRouter } from "next/router";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { useBlock, useFetchBlock, FetchStatus } from "src/providers/block";
-import { ErrorCard } from "src/components/common/ErrorCard";
-import { LoadingCard } from "src/components/common/LoadingCard";
-import { Slot } from "src/components/common/Slot";
-import { ClusterStatus, useCluster } from "src/providers/cluster";
+import { TableCardBody } from "components/common/TableCardBody";
+import { useBlock, useFetchBlock, FetchStatus } from "providers/block";
+import { ErrorCard } from "components/common/ErrorCard";
+import { LoadingCard } from "components/common/LoadingCard";
+import { Slot } from "components/common/Slot";
+import { ClusterStatus, useCluster } from "providers/cluster";
 import { BlockHistoryCard } from "./BlockHistoryCard";
 import { BlockRewardsCard } from "./BlockRewardsCard";
 import { VersionedBlockResponse } from "@solana/web3.js";
-import { NavLink } from "src/components/NavLink";
-import { clusterPath } from "src/utils/url";
+import { NavLink } from "react-router-dom";
+import { clusterPath } from "utils/url";
 import { BlockProgramsCard } from "./BlockProgramsCard";
 import { BlockAccountsCard } from "./BlockAccountsCard";
-import { displayTimestamp, displayTimestampUtc } from "src/utils/date";
-import { Epoch } from "src/components/common/Epoch";
-import { Address } from "src/components/common/Address";
+import { displayTimestamp, displayTimestampUtc } from "utils/date";
+import { Epoch } from "components/common/Epoch";
+import { Address } from "components/common/Address";
 
 export function BlockOverviewCard({
   slot,
@@ -215,8 +214,6 @@ function MoreSection({
   block: VersionedBlockResponse;
   tab?: string;
 }) {
-  const router = useRouter();
-
   return (
     <>
       <div className="container">
@@ -226,11 +223,11 @@ function MoreSection({
               {TABS.map(({ title, slug, path }) => (
                 <li key={slug} className="nav-item">
                   <NavLink
-                    activeClassName="active"
-                    href={clusterPath(`/block/${slot}${path}`, router.asPath)}
-                    scroll={false}
+                    className="nav-link"
+                    to={clusterPath(`/block/${slot}${path}`)}
+                    exact
                   >
-                    <span className="nav-link">{title}</span>
+                    {title}
                   </NavLink>
                 </li>
               ))}

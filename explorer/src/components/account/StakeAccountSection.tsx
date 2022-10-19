@@ -1,16 +1,16 @@
 import React from "react";
-import { TableCardBody } from "src/components/common/TableCardBody";
-import { SolBalance } from "src/components/common/SolBalance";
-import { displayTimestampUtc } from "src/utils/date";
-import { Account, useFetchAccountInfo } from "src/providers/accounts";
-import { Address } from "src/components/common/Address";
+import { TableCardBody } from "components/common/TableCardBody";
+import { SolBalance } from "components/common/SolBalance";
+import { displayTimestampUtc } from "utils/date";
+import { Account, useFetchAccountInfo } from "providers/accounts";
+import { Address } from "components/common/Address";
 import {
   StakeAccountInfo,
   StakeMeta,
   StakeAccountType,
-} from "src/validators/accounts/stake";
+} from "validators/accounts/stake";
 import { StakeActivationData } from "@solana/web3.js";
-import { Epoch } from "src/components/common/Epoch";
+import { Epoch } from "components/common/Epoch";
 
 const U64_MAX = BigInt("0xffffffffffffffff");
 

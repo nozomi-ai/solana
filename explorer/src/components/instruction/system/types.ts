@@ -1,5 +1,7 @@
+/* eslint-disable @typescript-eslint/no-redeclare */
+
 import { enums, number, type, string, Infer } from "superstruct";
-import { PublicKeyFromString } from "src/validators/pubkey";
+import { PublicKeyFromString } from "validators/pubkey";
 
 export type CreateAccountInfo = Infer<typeof CreateAccountInfo>;
 export const CreateAccountInfo = type({

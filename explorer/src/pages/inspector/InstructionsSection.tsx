@@ -1,16 +1,16 @@
 import React from "react";
 import { MessageCompiledInstruction, VersionedMessage } from "@solana/web3.js";
-import { TableCardBody } from "src/components/common/TableCardBody";
+import { TableCardBody } from "components/common/TableCardBody";
 import {
   AddressFromLookupTableWithContext,
   AddressWithContext,
   programValidator,
 } from "./AddressWithContext";
-import { useCluster } from "src/providers/cluster";
-import { getProgramName } from "src/utils/tx";
-import { HexData } from "src/components/common/HexData";
-import getInstructionCardScrollAnchorId from "src/utils/get-instruction-card-scroll-anchor-id";
-import { useScrollAnchor } from "src/providers/scroll-anchor";
+import { useCluster } from "providers/cluster";
+import { getProgramName } from "utils/tx";
+import { HexData } from "components/common/HexData";
+import getInstructionCardScrollAnchorId from "utils/get-instruction-card-scroll-anchor-id";
+import { useScrollAnchor } from "providers/scroll-anchor";
 
 export function InstructionsSection({
   message,

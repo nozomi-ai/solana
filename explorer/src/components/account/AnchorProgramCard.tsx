@@ -1,8 +1,7 @@
-import dynamic from "next/dynamic";
 import { PublicKey } from "@solana/web3.js";
-import { useAnchorProgram } from "src/providers/anchor";
-import { useCluster } from "src/providers/cluster";
-const ReactJson = dynamic(() => import("react-json-view"), { ssr: false });
+import { useAnchorProgram } from "providers/anchor";
+import { useCluster } from "providers/cluster";
+import ReactJson from "react-json-view";
 
 export function AnchorProgramCard({ programId }: { programId: PublicKey }) {
   const { url } = useCluster();

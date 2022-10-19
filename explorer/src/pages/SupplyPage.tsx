@@ -1,6 +1,6 @@
 import React from "react";
-import { TopAccountsCard } from "src/components/TopAccountsCard";
-import { SupplyCard } from "src/components/SupplyCard";
+import { TopAccountsCard } from "components/TopAccountsCard";
+import { SupplyCard } from "components/SupplyCard";
 
 export function SupplyPage() {
   return (
@@ -10,5 +10,3 @@ export function SupplyPage() {
     </div>
   );
 }
-
-export default SupplyPage;

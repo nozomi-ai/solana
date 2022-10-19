@@ -11,9 +11,9 @@ import {
   getAnchorProgramName,
   getAnchorAccountsFromInstruction,
   mapIxArgsToRows,
-} from "src/utils/anchor";
-import { Address } from "src/components/common/Address";
-import { camelToTitleCase } from "src/utils";
+} from "utils/anchor";
+import { Address } from "components/common/Address";
+import { camelToTitleCase } from "utils";
 import { IdlInstruction } from "@project-serum/anchor/dist/cjs/idl";
 import { useMemo } from "react";
 

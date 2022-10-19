@@ -2,29 +2,29 @@ import { create } from "superstruct";
 import {
   IX_TITLES,
   TokenInstructionType,
-} from "src/components/instruction/token/types";
-import { ParsedInfo } from "src/validators";
-import { reportError } from "src/utils/sentry";
+} from "components/instruction/token/types";
+import { ParsedInfo } from "validators";
+import { reportError } from "utils/sentry";
 import {
   ConfirmedSignatureInfo,
   ParsedTransactionWithMeta,
   ParsedInstruction,
   PartiallyDecodedInstruction,
 } from "@solana/web3.js";
-import { intoTransactionInstruction } from "src/utils/tx";
+import { intoTransactionInstruction } from "utils/tx";
 import {
   isTokenSwapInstruction,
   parseTokenSwapInstructionTitle,
-} from "src/components/instruction/token-swap/types";
+} from "components/instruction/token-swap/types";
 import {
   isTokenLendingInstruction,
   parseTokenLendingInstructionTitle,
-} from "src/components/instruction/token-lending/types";
+} from "components/instruction/token-lending/types";
 import {
   isSerumInstruction,
   parseSerumInstructionTitle,
-} from "src/components/instruction/serum/types";
-import { TOKEN_PROGRAM_ID } from "src/providers/accounts/tokens";
+} from "components/instruction/serum/types";
+import { TOKEN_PROGRAM_ID } from "providers/accounts/tokens";
 
 export type InstructionType = {
   name: string;

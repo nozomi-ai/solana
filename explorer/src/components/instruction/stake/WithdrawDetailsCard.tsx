@@ -4,9 +4,9 @@ import {
   StakeProgram,
   ParsedInstruction,
 } from "@solana/web3.js";
-import { SolBalance } from "src/components/common/SolBalance";
+import { SolBalance } from "components/common/SolBalance";
 import { InstructionCard } from "../InstructionCard";
-import { Address } from "src/components/common/Address";
+import { Address } from "components/common/Address";
 import { WithdrawInfo } from "./types";
 
 export function WithdrawDetailsCard(props: {

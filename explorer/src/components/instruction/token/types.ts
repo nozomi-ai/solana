@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-redeclare */
+
 import {
   enums,
   type,
@@ -9,7 +11,7 @@ import {
   nullable,
   union,
 } from "superstruct";
-import { PublicKeyFromString } from "src/validators/pubkey";
+import { PublicKeyFromString } from "validators/pubkey";
 
 export type TokenAmountUi = Infer<typeof TokenAmountUi>;
 export const TokenAmountUi = type({

@@ -1,10 +1,10 @@
-import { Slot } from "src/components/common/Slot";
+import { Slot } from "components/common/Slot";
 import React from "react";
 import {
   SysvarAccount,
   SlotHashesInfo,
   SlotHashEntry,
-} from "src/validators/accounts/sysvar";
+} from "validators/accounts/sysvar";
 
 export function SlotHashesCard({
   sysvarAccount,

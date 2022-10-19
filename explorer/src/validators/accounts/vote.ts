@@ -9,7 +9,7 @@ import {
   nullable,
   string,
 } from "superstruct";
-import { PublicKeyFromString } from "src/validators/pubkey";
+import { PublicKeyFromString } from "validators/pubkey";
 
 export type VoteAccountType = Infer<typeof VoteAccountType>;
 export const VoteAccountType = enums(["vote"]);

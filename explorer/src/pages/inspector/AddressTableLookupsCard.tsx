@@ -1,10 +1,7 @@
 import React from "react";
 import { PublicKey, VersionedMessage } from "@solana/web3.js";
-import { Address } from "src/components/common/Address";
-import {
-  useAddressLookupTable,
-  useFetchAccountInfo,
-} from "src/providers/accounts";
+import { Address } from "components/common/Address";
+import { useAddressLookupTable, useFetchAccountInfo } from "providers/accounts";
 
 export function AddressTableLookupsCard({
   message,

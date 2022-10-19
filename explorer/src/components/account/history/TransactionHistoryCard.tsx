@@ -1,21 +1,21 @@
 import React from "react";
-import { Signature } from "src/components/common/Signature";
-import { Slot } from "src/components/common/Slot";
+import { Signature } from "components/common/Signature";
+import { Slot } from "components/common/Slot";
 import Moment from "react-moment";
 import { PublicKey } from "@solana/web3.js";
 import {
   useAccountHistory,
   useFetchAccountHistory,
-} from "src/providers/accounts/history";
+} from "providers/accounts/history";
 import {
   getTransactionRows,
   HistoryCardFooter,
   HistoryCardHeader,
 } from "../HistoryCardComponents";
-import { FetchStatus } from "src/providers/cache";
-import { LoadingCard } from "src/components/common/LoadingCard";
-import { ErrorCard } from "src/components/common/ErrorCard";
-import { displayTimestampUtc } from "src/utils/date";
+import { FetchStatus } from "providers/cache";
+import { LoadingCard } from "components/common/LoadingCard";
+import { ErrorCard } from "components/common/ErrorCard";
+import { displayTimestampUtc } from "utils/date";
 
 export function TransactionHistoryCard({ pubkey }: { pubkey: PublicKey }) {
   const address = pubkey.toBase58();
