@@ -15,6 +15,8 @@ import { TransactionDetailsPage } from "pages/TransactionDetailsPage";
 import { BlockDetailsPage } from "pages/BlockDetailsPage";
 import { EpochDetailsPage } from "pages/EpochDetailsPage";
 import { GossipPage } from "pages/GossipPage";
+import NetworkStatusNotifier from "components/NetworkStatusNotifier";
+
 
 const ADDRESS_ALIASES = ["account", "accounts", "addresses"];
 const TX_ALIASES = ["txs", "txn", "txns", "transaction", "transactions"];
@@ -26,6 +28,7 @@ function App() {
       <div className="main-content pb-4">
         <Navbar />
         <MessageBanner />
+        <NetworkStatusNotifier />
         <ClusterStatusBanner />
         <SearchBar />
         <Switch>

@@ -470,6 +470,8 @@ export type GetAccountInfoConfig = {
   commitment?: Commitment;
   /** The minimum slot that the request can be evaluated at */
   minContextSlot?: number;
+  /** Optional data slice to limit the returned account data */
+  dataSlice?: DataSlice;
 };
 
 /**
@@ -2396,6 +2398,8 @@ export type GetMultipleAccountsConfig = {
   commitment?: Commitment;
   /** The minimum slot that the request can be evaluated at */
   minContextSlot?: number;
+  /** Optional data slice to limit the returned account data */
+  dataSlice?: DataSlice;
 };
 
 /**
@@ -3164,6 +3168,32 @@ export class Connection {
         'failed to get info about account ' + publicKey.toBase58() + ': ' + e,
       );
     }
+  }
+
+  /**
+   * Fetch all the account info for multiple accounts specified by an array of public keys, return with context
+   */
+  async getMultipleParsedAccounts(
+    publicKeys: PublicKey[],
+    rawConfig?: GetMultipleAccountsConfig,
+  ): Promise<
+    RpcResponseAndContext<(AccountInfo<Buffer | ParsedAccountData> | null)[]>
+  > {
+    const {commitment, config} = extractCommitmentFromConfig(rawConfig);
+    const keys = publicKeys.map(key => key.toBase58());
+    const args = this._buildArgs([keys], commitment, 'jsonParsed', config);
+    const unsafeRes = await this._rpcRequest('getMultipleAccounts', args);
+    const res = create(
+      unsafeRes,
+      jsonRpcResultAndContext(array(nullable(ParsedAccountInfoResult))),
+    );
+    if ('error' in res) {
+      throw new SolanaJSONRPCError(
+        res.error,
+        `failed to get info for accounts ${keys}`,
+      );
+    }
+    return res.result;
   }
 
   /**
@@ -5054,7 +5084,8 @@ export class Connection {
    */
   _wsOnClose(code: number) {
     this._rpcWebSocketConnected = false;
-    this._rpcWebSocketGeneration++;
+    this._rpcWebSocketGeneration =
+      (this._rpcWebSocketGeneration + 1) % Number.MAX_SAFE_INTEGER;
     if (this._rpcWebSocketIdleTimeout) {
       clearTimeout(this._rpcWebSocketIdleTimeout);
       this._rpcWebSocketIdleTimeout = null;
