@@ -17,6 +17,20 @@ export type InstructionLogs = {
   failed: boolean;
 };
 
+export function parseRawProgramLogs(
+  logs: string[],
+) {
+  let rawLogs : LogMessage[] = [];
+  logs.forEach((log) => {
+    rawLogs.push({
+      prefix: "",
+      style: "info",
+      text: `${log}`,
+    });
+  })
+  return rawLogs;
+}
+
 export function parseProgramLogs(
   logs: string[],
   error: TransactionError | null,
