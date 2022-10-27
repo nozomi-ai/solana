@@ -1,6 +1,6 @@
 import { useCluster } from "providers/cluster";
 import { useState, useEffect } from "react";
-import axios from "axios";
+import { makeRPCCall } from "utils/makeRPCCall";
 
 const PING_PERIOD_IN_MS: number = 3000;
 
@@ -21,8 +21,12 @@ function NetworkStatusNotifier() {
 
   useEffect(() => {
     let timer = setInterval(async () => {
-      const statusDesc: string = await makeAHealthCheckCall(url);
-      if (statusDesc !== currentStatus) {
+      const statusDesc: string = await makeRPCCall(
+        url,
+        "getHealth",
+        "Status Not Available."
+      );
+      if (statusDesc === currentStatus) {
         setHasDownTime(statusDesc !== healthyStatus);
         setCurrentState(statusDesc);
       }
@@ -45,25 +49,3 @@ function NetworkStatusNotifier() {
 }
 
 export default NetworkStatusNotifier;
-
-const makeAHealthCheckCall = async (url: string): Promise<string> => {
-  try {
-    const config = {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    };
-
-    const data = {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "getHealth",
-    };
-
-    const response = await axios.post(url, data, config);
-
-    return response.data.result;
-  } catch (error) {
-    return "Status not available.";
-  }
-};
