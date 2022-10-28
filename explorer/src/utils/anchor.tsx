@@ -9,6 +9,7 @@ import {
   IdlInstruction,
   IdlType,
   IdlTypeDef,
+  IdlField,
 } from "@project-serum/anchor/dist/cjs/idl";
 import { Address } from "components/common/Address";
 import ReactJson from "react-json-view";
@@ -279,17 +280,57 @@ function mapField(
         </ExpandableRow>
       );
     } else {
-      const enumValue = Object.keys(value)[0];
+      const [enumVariant, variantValue] = [...Object.entries(value)[0]];
+      const variantFieldsType = fieldType.type.variants.find(
+        (el) => el.name.toLowerCase() === enumVariant.toLowerCase()
+      );
+
+      if (!variantFieldsType) {
+        throw Error(
+          `Could not type definition for ${type.defined} field in IDL`
+        );
+      }
+
       return (
-        <SimpleRow
-          key={keySuffix ? `${key}-${keySuffix}` : key}
-          rawKey={key}
-          type={{ enum: type.defined }}
-          keySuffix={keySuffix}
+        <ExpandableRow
+          fieldName={itemKey}
+          fieldType={typeDisplayName({ enum: type.defined })}
           nestingLevel={nestingLevel}
+          key={keySuffix ? `${key}-${keySuffix}` : key}
         >
-          {camelToTitleCase(enumValue)}
-        </SimpleRow>
+          <Fragment key={keySuffix ? `${key}-${keySuffix}` : key}>
+            <ExpandableRow
+              fieldName={enumVariant}
+              fieldType={typeDisplayName({ enumVariant: enumVariant })}
+              nestingLevel={nestingLevel + 1}
+              key={keySuffix ? `${enumVariant}-${keySuffix}` : enumVariant}
+            >
+              {Object.entries(variantValue as any).map(
+                ([innerKey, innerValue]: [string, any]) => {
+                  //map as there is only one inner field
+                  const innerFieldType = variantFieldsType?.fields?.map(
+                    (el) => (el as IdlField).type
+                  );
+
+                  if (!innerFieldType) {
+                    throw Error(
+                      `Could not type definition for ${innerKey} field in user-defined enum variant ${fieldType.name}`
+                    );
+                  }
+
+                  return mapField(
+                    innerKey,
+                    innerValue,
+                    innerFieldType[0],
+                    idl,
+                    key,
+                    nestingLevel + 2
+                  );
+                }
+              )}
+            </ExpandableRow>
+          </Fragment>
+        </ExpandableRow>
       );
     }
   } else if ("option" in type) {
@@ -453,6 +494,9 @@ function typeDisplayName(
     | {
         enum: string;
       }
+    | {
+        enumVariant: string;
+      }
 ): string {
   switch (type) {
     case "bool":
@@ -475,6 +519,7 @@ function typeDisplayName(
       return "PublicKey";
     default:
       if ("enum" in type) return `${type.enum} (enum)`;
+      if ("enumVariant" in type) return `${type.enumVariant} (enum variant)`;
       if ("defined" in type) return type.defined;
       if ("option" in type) return `${typeDisplayName(type.option)} (optional)`;
       if ("vec" in type) return `${typeDisplayName(type.vec)}[]`;
