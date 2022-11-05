@@ -26,7 +26,7 @@ function NetworkStatusNotifier() {
         "getHealth",
         "Status Not Available."
       );
-      if (statusDesc === currentStatus) {
+      if (statusDesc !== currentStatus) {
         setHasDownTime(statusDesc !== healthyStatus);
         setCurrentState(statusDesc);
       }
