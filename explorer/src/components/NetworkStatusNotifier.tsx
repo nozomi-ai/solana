@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import axios from "axios";
-import { useCluster } from "providers/cluster";
+import { ClusterStatus, useCluster } from "providers/cluster";
 
-const PING_PERIOD_IN_MS: number = 3000;
+const PING_PERIOD_IN_MS: number = 1000;
 
 const container = {
   display: "flex",
@@ -17,26 +17,28 @@ function NetworkStatusNotifier() {
   const [currentStatus, setCurrentState] = useState<string>(healthyStatus);
   const [hasDownTime, setHasDownTime] = useState<boolean>(false);
 
-  const { url, name } = useCluster();
+  const { url, name, status } = useCluster();
 
   useEffect(() => {
     let timer = setInterval(async () => {
-      const res = await makeHealthCall(url);
-      let statusDesc: string;
+      if (status === ClusterStatus.Connected) {
+        const res = await makeHealthCall(url);
+        let statusDesc: string;
 
-      if (res.result) {
-        statusDesc = res.result;
-        if (statusDesc !== currentStatus) {
-          setHasDownTime(statusDesc !== healthyStatus);
-          setCurrentState(statusDesc);
+        if (res.result) {
+          statusDesc = res.result;
+          if (statusDesc !== currentStatus) {
+            setHasDownTime(statusDesc !== healthyStatus);
+            setCurrentState(statusDesc);
+          }
         }
-      }
 
-      if (res.error) {
-        statusDesc = res.error.message;
-        if (statusDesc !== currentStatus) {
-          setHasDownTime(statusDesc !== healthyStatus);
-          setCurrentState(statusDesc);
+        if (res.error) {
+          statusDesc = res.error.message;
+          if (statusDesc !== currentStatus) {
+            setHasDownTime(statusDesc !== healthyStatus);
+            setCurrentState(statusDesc);
+          }
         }
       }
     }, PING_PERIOD_IN_MS);
@@ -44,7 +46,7 @@ function NetworkStatusNotifier() {
     return () => {
       clearTimeout(timer);
     };
-  });
+  }, [url]);
 
   return (
     <div style={container}>
