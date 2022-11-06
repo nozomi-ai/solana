@@ -1,6 +1,6 @@
-import { useCluster } from "providers/cluster";
 import { useState, useEffect } from "react";
-import { makeRPCCall } from "utils/makeRPCCall";
+import axios from "axios";
+import { useCluster } from "providers/cluster";
 
 const PING_PERIOD_IN_MS: number = 3000;
 
@@ -21,14 +21,23 @@ function NetworkStatusNotifier() {
 
   useEffect(() => {
     let timer = setInterval(async () => {
-      const statusDesc: string = await makeRPCCall(
-        url,
-        "getHealth",
-        "Status Not Available."
-      );
-      if (statusDesc !== currentStatus) {
-        setHasDownTime(statusDesc !== healthyStatus);
-        setCurrentState(statusDesc);
+      const res = await makeHealthCall(url);
+      let statusDesc: string;
+
+      if (res.result) {
+        statusDesc = res.result;
+        if (statusDesc !== currentStatus) {
+          setHasDownTime(statusDesc !== healthyStatus);
+          setCurrentState(statusDesc);
+        }
+      }
+
+      if (res.error) {
+        statusDesc = res.error.message;
+        if (statusDesc !== currentStatus) {
+          setHasDownTime(statusDesc !== healthyStatus);
+          setCurrentState(statusDesc);
+        }
       }
     }, PING_PERIOD_IN_MS);
 
@@ -49,3 +58,24 @@ function NetworkStatusNotifier() {
 }
 
 export default NetworkStatusNotifier;
+
+export async function makeHealthCall(url: string): Promise<any> {
+  try {
+    const config = {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    const data = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "getHealth",
+    };
+
+    const response = await axios.post(url, data, config);
+    return response.data;
+  } catch {
+    //ignore error in production
+  }
+}
