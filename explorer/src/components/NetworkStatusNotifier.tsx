@@ -13,8 +13,8 @@ const container = {
   fontWeight: "bold" as "bold",
 };
 function NetworkStatusNotifier() {
-  const healthyStatus = "ok";
-  const [currentStatus, setCurrentState] = useState<string>(healthyStatus);
+  const healthyStatus: string = "ok";
+  const [currentStatus, setCurrentStatus] = useState<string>(healthyStatus);
   const [hasDownTime, setHasDownTime] = useState<boolean>(false);
 
   const { url, name, status } = useCluster();
@@ -23,22 +23,20 @@ function NetworkStatusNotifier() {
     let timer = setInterval(async () => {
       if (status === ClusterStatus.Connected) {
         const res = await makeHealthCall(url);
-        let statusDesc: string;
+        let statusDesc: string = "";
 
         if (res.result) {
           statusDesc = res.result;
-          if (statusDesc !== currentStatus) {
-            setHasDownTime(statusDesc !== healthyStatus);
-            setCurrentState(statusDesc);
-          }
         }
-
         if (res.error) {
           statusDesc = res.error.message;
-          if (statusDesc !== currentStatus) {
-            setHasDownTime(statusDesc !== healthyStatus);
-            setCurrentState(statusDesc);
-          }
+        }
+
+        let hasHealthStatusChanged = statusDesc !== currentStatus;
+
+        if (hasHealthStatusChanged) {
+          setHasDownTime(statusDesc !== healthyStatus);
+          setCurrentStatus(statusDesc);
         }
       }
     }, PING_PERIOD_IN_MS);
@@ -46,7 +44,7 @@ function NetworkStatusNotifier() {
     return () => {
       clearTimeout(timer);
     };
-  }, [url]);
+  });
 
   return (
     <div style={container}>
