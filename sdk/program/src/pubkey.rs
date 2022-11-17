@@ -176,7 +176,9 @@ impl Pubkey {
 
         let mut b = [0u8; 32];
         let i = I.fetch_add(1);
-        b[0..8].copy_from_slice(&i.to_le_bytes());
+        // use big endian representation to ensure that recent unique pubkeys
+        // are always greater than less recent unique pubkeys
+        b[0..8].copy_from_slice(&i.to_be_bytes());
         Self::new(&b)
     }
 
@@ -370,7 +372,7 @@ impl Pubkey {
     ///
     /// ```
     /// # use borsh::{BorshSerialize, BorshDeserialize};
-    /// # use solana_program::example_mocks::{solana_sdk, solana_client};
+    /// # use solana_program::example_mocks::{solana_sdk, solana_rpc_client};
     /// # use solana_program::{
     /// #     pubkey::Pubkey,
     /// #     instruction::Instruction,
@@ -383,7 +385,7 @@ impl Pubkey {
     /// #     signature::{Signer, Signature},
     /// #     transaction::Transaction,
     /// # };
-    /// # use solana_client::rpc_client::RpcClient;
+    /// # use solana_rpc_client::rpc_client::RpcClient;
     /// # use std::convert::TryFrom;
     /// # use anyhow::Result;
     /// #
@@ -494,19 +496,10 @@ impl Pubkey {
         // Call via a system call to perform the calculation
         #[cfg(target_os = "solana")]
         {
-            extern "C" {
-                fn sol_try_find_program_address(
-                    seeds_addr: *const u8,
-                    seeds_len: u64,
-                    program_id_addr: *const u8,
-                    address_bytes_addr: *const u8,
-                    bump_seed_addr: *const u8,
-                ) -> u64;
-            }
             let mut bytes = [0; 32];
             let mut bump_seed = std::u8::MAX;
             let result = unsafe {
-                sol_try_find_program_address(
+                crate::syscalls::sol_try_find_program_address(
                     seeds as *const _ as *const u8,
                     seeds.len() as u64,
                     program_id as *const _ as *const u8,
@@ -596,17 +589,9 @@ impl Pubkey {
         // Call via a system call to perform the calculation
         #[cfg(target_os = "solana")]
         {
-            extern "C" {
-                fn sol_create_program_address(
-                    seeds_addr: *const u8,
-                    seeds_len: u64,
-                    program_id_addr: *const u8,
-                    address_bytes_addr: *const u8,
-                ) -> u64;
-            }
             let mut bytes = [0; 32];
             let result = unsafe {
-                sol_create_program_address(
+                crate::syscalls::sol_create_program_address(
                     seeds as *const _ as *const u8,
                     seeds.len() as u64,
                     program_id as *const _ as *const u8,
@@ -631,12 +616,9 @@ impl Pubkey {
     /// Log a `Pubkey` from a program
     pub fn log(&self) {
         #[cfg(target_os = "solana")]
-        {
-            extern "C" {
-                fn sol_log_pubkey(pubkey_addr: *const u8);
-            }
-            unsafe { sol_log_pubkey(self.as_ref() as *const _ as *const u8) };
-        }
+        unsafe {
+            crate::syscalls::sol_log_pubkey(self.as_ref() as *const _ as *const u8)
+        };
 
         #[cfg(not(target_os = "solana"))]
         crate::program_stubs::sol_log(&self.to_string());

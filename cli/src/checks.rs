@@ -1,9 +1,7 @@
 use {
     crate::cli::CliError,
-    solana_client::{
-        client_error::{ClientError, Result as ClientResult},
-        rpc_client::RpcClient,
-    },
+    solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client_api::client_error::{Error as ClientError, Result as ClientResult},
     solana_sdk::{
         commitment_config::CommitmentConfig, message::Message, native_token::lamports_to_sol,
         pubkey::Pubkey,
@@ -68,6 +66,22 @@ pub fn check_account_for_spend_multiple_fees_with_commitment(
     commitment: CommitmentConfig,
 ) -> Result<(), CliError> {
     let fee = get_fee_for_messages(rpc_client, messages)?;
+    check_account_for_spend_and_fee_with_commitment(
+        rpc_client,
+        account_pubkey,
+        balance,
+        fee,
+        commitment,
+    )
+}
+
+pub fn check_account_for_spend_and_fee_with_commitment(
+    rpc_client: &RpcClient,
+    account_pubkey: &Pubkey,
+    balance: u64,
+    fee: u64,
+    commitment: CommitmentConfig,
+) -> Result<(), CliError> {
     if !check_account_for_balance_with_commitment(
         rpc_client,
         account_pubkey,
@@ -98,7 +112,7 @@ pub fn get_fee_for_messages(
 ) -> Result<u64, CliError> {
     Ok(messages
         .iter()
-        .map(|message| rpc_client.get_fee_for_message(message))
+        .map(|message| rpc_client.get_fee_for_message(*message))
         .collect::<Result<Vec<_>, _>>()?
         .iter()
         .sum())
@@ -151,9 +165,9 @@ mod tests {
     use {
         super::*,
         serde_json::json,
-        solana_client::{
-            rpc_request::RpcRequest,
-            rpc_response::{Response, RpcResponseContext},
+        solana_rpc_client_api::{
+            request::RpcRequest,
+            response::{Response, RpcResponseContext},
         },
         solana_sdk::system_instruction,
         std::collections::HashMap,

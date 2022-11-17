@@ -10,23 +10,26 @@ use {
     clap::{App, AppSettings, Arg, ArgMatches, SubCommand},
     log::*,
     solana_account_decoder::{UiAccountEncoding, UiDataSliceConfig},
-    solana_bpf_loader_program::{syscalls::register_syscalls, BpfError, ThisInstructionMeter},
+    solana_bpf_loader_program::syscalls::register_syscalls,
     solana_clap_utils::{self, input_parsers::*, input_validators::*, keypair::*},
     solana_cli_output::{
         CliProgram, CliProgramAccountType, CliProgramAuthority, CliProgramBuffer, CliProgramId,
         CliUpgradeableBuffer, CliUpgradeableBuffers, CliUpgradeableProgram,
         CliUpgradeableProgramClosed, CliUpgradeablePrograms,
     },
-    solana_client::{
-        client_error::ClientErrorKind,
-        rpc_client::RpcClient,
-        rpc_config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcSendTransactionConfig},
-        rpc_filter::{Memcmp, MemcmpEncodedBytes, RpcFilterType},
-        tpu_client::{TpuClient, TpuClientConfig},
-    },
     solana_program_runtime::invoke_context::InvokeContext,
-    solana_rbpf::{elf::Executable, verifier, vm::Config},
+    solana_rbpf::{
+        elf::Executable,
+        verifier::RequisiteVerifier,
+        vm::{Config, VerifiedExecutable},
+    },
     solana_remote_wallet::remote_wallet::RemoteWalletManager,
+    solana_rpc_client::rpc_client::RpcClient,
+    solana_rpc_client_api::{
+        client_error::ErrorKind as ClientErrorKind,
+        config::{RpcAccountInfoConfig, RpcProgramAccountsConfig, RpcSendTransactionConfig},
+        filter::{Memcmp, RpcFilterType},
+    },
     solana_sdk::{
         account::Account,
         account_utils::StateMut,
@@ -41,8 +44,13 @@ use {
         signature::{keypair_from_seed, read_keypair_file, Keypair, Signature, Signer},
         system_instruction::{self, SystemError},
         system_program,
+        sysvar::rent::Rent,
         transaction::{Transaction, TransactionError},
         transaction_context::TransactionContext,
+    },
+    solana_tpu_client::{
+        connection_cache::ConnectionCache,
+        tpu_client::{TpuClient, TpuClientConfig},
     },
     std::{
         fs::File,
@@ -53,6 +61,11 @@ use {
         sync::Arc,
     },
 };
+
+pub const CLOSE_PROGRAM_WARNING: &str = "WARNING! \
+Closed programs cannot be recreated at the same program id. \
+Once a program is closed, it can never be invoked again. \
+To proceed with closing, rerun the `close` command with the `--bypass-warning` flag";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProgramCliCommand {
@@ -103,6 +116,7 @@ pub enum ProgramCliCommand {
         recipient_pubkey: Pubkey,
         authority_index: SignerIndex,
         use_lamports_unit: bool,
+        bypass_warning: bool,
     },
 }
 
@@ -125,7 +139,7 @@ impl ProgramSubCommands for App<'_, '_> {
                 )
                 .subcommand(
                     SubCommand::with_name("deploy")
-                        .about("Deploy a program")
+                        .about("Deploy an upgradeable program")
                         .arg(
                             Arg::with_name("program_location")
                                 .index(1)
@@ -380,48 +394,19 @@ impl ProgramSubCommands for App<'_, '_> {
                                 .long("lamports")
                                 .takes_value(false)
                                 .help("Display balance in lamports instead of SOL"),
+                        )
+                        .arg(
+                            Arg::with_name("bypass_warning")
+                                .long("bypass-warning")
+                                .takes_value(false)
+                                .help("Bypass the permanent program closure warning"),
                         ),
                 )
         )
         .subcommand(
             SubCommand::with_name("deploy")
-                .about("Deploy a program")
+                .about("Deploy has been removed. Use `solana program deploy` instead to deploy upgradeable programs")
                 .setting(AppSettings::Hidden)
-                .arg(
-                    Arg::with_name("program_location")
-                        .index(1)
-                        .value_name("PROGRAM_FILEPATH")
-                        .takes_value(true)
-                        .required(true)
-                        .help("/path/to/program.o"),
-                )
-                .arg(
-                    Arg::with_name("address_signer")
-                        .index(2)
-                        .value_name("PROGRAM_ADDRESS_SIGNER")
-                        .takes_value(true)
-                        .validator(is_valid_signer)
-                        .help("The signer for the desired address of the program [default: new random address]")
-                )
-                .arg(
-                    Arg::with_name("use_deprecated_loader")
-                        .long("use-deprecated-loader")
-                        .takes_value(false)
-                        .hidden(true) // Don't document this argument to discourage its use
-                        .help("Use the deprecated BPF loader")
-                )
-                .arg(
-                    Arg::with_name("allow_excessive_balance")
-                        .long("allow-excessive-deploy-account-balance")
-                        .takes_value(false)
-                        .help("Use the designated program id, even if the account already holds a large balance of SOL")
-                )
-                .arg(
-                    Arg::with_name("skip_fee_check")
-                        .long("skip-fee-check")
-                        .hidden(true)
-                        .takes_value(false)
-                ),
         )
     }
 }
@@ -668,6 +653,7 @@ pub fn parse_program_subcommand(
                     recipient_pubkey,
                     authority_index: signer_info.index_of(authority_pubkey).unwrap(),
                     use_lamports_unit: matches.is_present("lamports"),
+                    bypass_warning: matches.is_present("bypass_warning"),
                 }),
                 signers: signer_info.signers,
             }
@@ -775,6 +761,7 @@ pub fn process_program_subcommand(
             recipient_pubkey,
             authority_index,
             use_lamports_unit,
+            bypass_warning,
         } => process_close(
             &rpc_client,
             config,
@@ -782,6 +769,7 @@ pub fn process_program_subcommand(
             *recipient_pubkey,
             *authority_index,
             *use_lamports_unit,
+            *bypass_warning,
         ),
     }
 }
@@ -795,7 +783,7 @@ fn get_default_program_keypair(program_location: &Option<String>) -> Keypair {
             filename.push("-keypair");
             keypair_file.set_file_name(filename);
             keypair_file.set_extension("json");
-            if let Ok(keypair) = read_keypair_file(&keypair_file.to_str().unwrap()) {
+            if let Ok(keypair) = read_keypair_file(keypair_file.to_str().unwrap()) {
                 keypair
             } else {
                 Keypair::new()
@@ -1198,24 +1186,19 @@ fn get_buffers(
     authority_pubkey: Option<Pubkey>,
     use_lamports_unit: bool,
 ) -> Result<CliUpgradeableBuffers, Box<dyn std::error::Error>> {
-    let mut filters = vec![RpcFilterType::Memcmp(Memcmp {
-        offset: 0,
-        bytes: MemcmpEncodedBytes::Base58(bs58::encode(vec![1, 0, 0, 0]).into_string()),
-        encoding: None,
-    })];
+    let mut filters = vec![RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+        0,
+        &[1, 0, 0, 0],
+    ))];
     if let Some(authority_pubkey) = authority_pubkey {
-        filters.push(RpcFilterType::Memcmp(Memcmp {
-            offset: ACCOUNT_TYPE_SIZE,
-            bytes: MemcmpEncodedBytes::Base58(bs58::encode(vec![1]).into_string()),
-            encoding: None,
-        }));
-        filters.push(RpcFilterType::Memcmp(Memcmp {
-            offset: ACCOUNT_TYPE_SIZE + OPTION_SIZE,
-            bytes: MemcmpEncodedBytes::Base58(
-                bs58::encode(authority_pubkey.as_ref()).into_string(),
-            ),
-            encoding: None,
-        }));
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+            ACCOUNT_TYPE_SIZE,
+            &[1],
+        )));
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+            ACCOUNT_TYPE_SIZE + OPTION_SIZE,
+            authority_pubkey.as_ref(),
+        )));
     }
 
     let results = get_accounts_with_filter(
@@ -1251,24 +1234,19 @@ fn get_programs(
     authority_pubkey: Option<Pubkey>,
     use_lamports_unit: bool,
 ) -> Result<CliUpgradeablePrograms, Box<dyn std::error::Error>> {
-    let mut filters = vec![RpcFilterType::Memcmp(Memcmp {
-        offset: 0,
-        bytes: MemcmpEncodedBytes::Base58(bs58::encode(vec![3, 0, 0, 0]).into_string()),
-        encoding: None,
-    })];
+    let mut filters = vec![RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+        0,
+        &[3, 0, 0, 0],
+    ))];
     if let Some(authority_pubkey) = authority_pubkey {
-        filters.push(RpcFilterType::Memcmp(Memcmp {
-            offset: ACCOUNT_TYPE_SIZE + SLOT_SIZE,
-            bytes: MemcmpEncodedBytes::Base58(bs58::encode(vec![1]).into_string()),
-            encoding: None,
-        }));
-        filters.push(RpcFilterType::Memcmp(Memcmp {
-            offset: ACCOUNT_TYPE_SIZE + SLOT_SIZE + OPTION_SIZE,
-            bytes: MemcmpEncodedBytes::Base58(
-                bs58::encode(authority_pubkey.as_ref()).into_string(),
-            ),
-            encoding: None,
-        }));
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+            ACCOUNT_TYPE_SIZE + SLOT_SIZE,
+            &[1],
+        )));
+        filters.push(RpcFilterType::Memcmp(Memcmp::new_base58_encoded(
+            ACCOUNT_TYPE_SIZE + SLOT_SIZE + OPTION_SIZE,
+            authority_pubkey.as_ref(),
+        )));
     }
 
     let results = get_accounts_with_filter(
@@ -1286,11 +1264,7 @@ fn get_programs(
         {
             let mut bytes = vec![2, 0, 0, 0];
             bytes.extend_from_slice(programdata_address.as_ref());
-            let filters = vec![RpcFilterType::Memcmp(Memcmp {
-                offset: 0,
-                bytes: MemcmpEncodedBytes::Base58(bs58::encode(bytes).into_string()),
-                encoding: None,
-            })];
+            let filters = vec![RpcFilterType::Memcmp(Memcmp::new_base58_encoded(0, &bytes))];
 
             let results = get_accounts_with_filter(rpc_client, filters, 0)?;
             if results.len() != 1 {
@@ -1424,7 +1398,7 @@ fn process_show(
                     .into())
                 }
             } else {
-                Err(format!("{} is not a BPF program", account_pubkey).into())
+                Err(format!("{} is not an SBF program", account_pubkey).into())
             }
         } else {
             Err(format!("Unable to find the account {}", account_pubkey).into())
@@ -1494,7 +1468,7 @@ fn process_dump(
                     .into())
                 }
             } else {
-                Err(format!("{} is not a BPF program", account_pubkey).into())
+                Err(format!("{} is not an SBF program", account_pubkey).into())
             }
         } else {
             Err(format!("Unable to find the account {}", account_pubkey).into())
@@ -1561,6 +1535,7 @@ fn process_close(
     recipient_pubkey: Pubkey,
     authority_index: SignerIndex,
     use_lamports_unit: bool,
+    bypass_warning: bool,
 ) -> ProcessResult {
     let authority_signer = config.signers[authority_index];
 
@@ -1616,13 +1591,16 @@ fn process_close(
                         }) = account.state()
                         {
                             if authority_pubkey != Some(authority_signer.pubkey()) {
-                                return Err(format!(
+                                Err(format!(
                                     "Program authority {:?} does not match {:?}",
                                     authority_pubkey,
                                     Some(authority_signer.pubkey())
                                 )
-                                .into());
+                                .into())
                             } else {
+                                if !bypass_warning {
+                                    return Err(String::from(CLOSE_PROGRAM_WARNING).into());
+                                }
                                 close(
                                     rpc_client,
                                     config,
@@ -1640,22 +1618,16 @@ fn process_close(
                                 ))
                             }
                         } else {
-                            return Err(
-                                format!("Program {} has been closed", account_pubkey).into()
-                            );
+                            Err(format!("Program {} has been closed", account_pubkey).into())
                         }
                     } else {
-                        return Err(format!("Program {} has been closed", account_pubkey).into());
+                        Err(format!("Program {} has been closed", account_pubkey).into())
                     }
                 }
-                _ => {
-                    return Err(
-                        format!("{} is not a Program or Buffer account", account_pubkey).into(),
-                    );
-                }
+                _ => Err(format!("{} is not a Program or Buffer account", account_pubkey).into()),
             }
         } else {
-            return Err(format!("Unable to find the account {}", account_pubkey).into());
+            Err(format!("Unable to find the account {}", account_pubkey).into())
         }
     } else {
         let buffers = get_buffers(
@@ -1686,53 +1658,6 @@ fn process_close(
                 use_lamports_unit,
             }))
     }
-}
-
-/// Deploy using non-upgradeable loader
-pub fn process_deploy(
-    rpc_client: Arc<RpcClient>,
-    config: &CliConfig,
-    program_location: &str,
-    buffer_signer_index: Option<SignerIndex>,
-    use_deprecated_loader: bool,
-    allow_excessive_balance: bool,
-    skip_fee_check: bool,
-) -> ProcessResult {
-    // Create ephemeral keypair to use for Buffer account, if not provided
-    let (words, mnemonic, buffer_keypair) = create_ephemeral_keypair()?;
-    let buffer_signer = if let Some(i) = buffer_signer_index {
-        config.signers[i]
-    } else {
-        &buffer_keypair
-    };
-
-    let program_data = read_and_verify_elf(program_location)?;
-    let minimum_balance = rpc_client.get_minimum_balance_for_rent_exemption(program_data.len())?;
-    let loader_id = if use_deprecated_loader {
-        bpf_loader_deprecated::id()
-    } else {
-        bpf_loader::id()
-    };
-
-    let result = do_process_program_write_and_deploy(
-        rpc_client,
-        config,
-        &program_data,
-        program_data.len(),
-        program_data.len(),
-        minimum_balance,
-        &loader_id,
-        Some(&[buffer_signer]),
-        Some(buffer_signer),
-        &buffer_signer.pubkey(),
-        Some(buffer_signer),
-        allow_excessive_balance,
-        skip_fee_check,
-    );
-    if result.is_err() && buffer_signer_index.is_none() {
-        report_ephemeral_mnemonic(words, mnemonic);
-    }
-    result
 }
 
 fn calculate_max_chunk_size<F>(create_msg: &F) -> usize
@@ -1898,7 +1823,14 @@ fn do_process_program_write_and_deploy(
     }
 
     if !skip_fee_check {
-        check_payer(&rpc_client, config, balance_needed, &messages)?;
+        check_payer(
+            &rpc_client,
+            config,
+            balance_needed,
+            &initial_message,
+            &write_messages,
+            &final_message,
+        )?;
     }
 
     send_deploy_messages(
@@ -2032,9 +1964,17 @@ fn do_process_program_upgrade(
         &blockhash,
     );
     messages.push(&final_message);
+    let final_message = Some(final_message);
 
     if !skip_fee_check {
-        check_payer(&rpc_client, config, balance_needed, &messages)?;
+        check_payer(
+            &rpc_client,
+            config,
+            balance_needed,
+            &initial_message,
+            &write_messages,
+            &final_message,
+        )?;
     }
 
     send_deploy_messages(
@@ -2042,7 +1982,7 @@ fn do_process_program_upgrade(
         config,
         &initial_message,
         &write_messages,
-        &Some(final_message),
+        &final_message,
         buffer_signer,
         Some(upgrade_authority),
         Some(&[upgrade_authority]),
@@ -2060,20 +2000,22 @@ fn read_and_verify_elf(program_location: &str) -> Result<Vec<u8>, Box<dyn std::e
     let mut program_data = Vec::new();
     file.read_to_end(&mut program_data)
         .map_err(|err| format!("Unable to read program file: {}", err))?;
-    let mut transaction_context = TransactionContext::new(Vec::new(), 1, 1);
-    let mut invoke_context = InvokeContext::new_mock(&mut transaction_context, &[]);
+    let mut transaction_context = TransactionContext::new(Vec::new(), Some(Rent::default()), 1, 1);
+    let invoke_context = InvokeContext::new_mock(&mut transaction_context, &[]);
 
     // Verify the program
-    Executable::<BpfError, ThisInstructionMeter>::from_elf(
+    let executable = Executable::<InvokeContext>::from_elf(
         &program_data,
-        Some(verifier::check),
         Config {
             reject_broken_elfs: true,
             ..Config::default()
         },
-        register_syscalls(&mut invoke_context, true).unwrap(),
+        register_syscalls(&invoke_context.feature_set, true).unwrap(),
     )
     .map_err(|err| format!("ELF error: {}", err))?;
+
+    let _ = VerifiedExecutable::<RequisiteVerifier, InvokeContext>::from_executable(executable)
+        .map_err(|err| format!("ELF error: {}", err))?;
 
     Ok(program_data)
 }
@@ -2134,14 +2076,28 @@ fn check_payer(
     rpc_client: &RpcClient,
     config: &CliConfig,
     balance_needed: u64,
-    messages: &[&Message],
+    initial_message: &Option<Message>,
+    write_messages: &Option<Vec<Message>>,
+    final_message: &Option<Message>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Does the payer have enough?
-    check_account_for_spend_multiple_fees_with_commitment(
+    let mut fee = 0;
+    if let Some(message) = initial_message {
+        fee += rpc_client.get_fee_for_message(message)?;
+    }
+    if let Some(write_messages) = write_messages {
+        // Assume all write messages cost the same
+        if let Some(message) = write_messages.get(0) {
+            fee += rpc_client.get_fee_for_message(message)? * (write_messages.len() as u64);
+        }
+    }
+    if let Some(message) = final_message {
+        fee += rpc_client.get_fee_for_message(message)?;
+    }
+    check_account_for_spend_and_fee_with_commitment(
         rpc_client,
         &config.signers[0].pubkey(),
         balance_needed,
-        messages,
+        fee,
         config.commitment,
     )?;
     Ok(())
@@ -2185,10 +2141,16 @@ fn send_deploy_messages(
     if let Some(write_messages) = write_messages {
         if let Some(write_signer) = write_signer {
             trace!("Writing program data");
-            let tpu_client = TpuClient::new(
+            let connection_cache = if config.use_quic {
+                Arc::new(ConnectionCache::new(1))
+            } else {
+                Arc::new(ConnectionCache::with_udp(1))
+            };
+            let tpu_client = TpuClient::new_with_connection_cache(
                 rpc_client.clone(),
                 &config.websocket_url,
                 TpuClientConfig::default(),
+                connection_cache,
             )?;
             let transaction_errors = tpu_client
                 .send_and_confirm_messages_with_spinner(
@@ -2988,6 +2950,30 @@ mod tests {
                     recipient_pubkey: default_keypair.pubkey(),
                     authority_index: 0,
                     use_lamports_unit: false,
+                    bypass_warning: false,
+                }),
+                signers: vec![read_keypair_file(&keypair_file).unwrap().into()],
+            }
+        );
+
+        // with bypass-warning
+        write_keypair_file(&authority_keypair, &authority_keypair_file).unwrap();
+        let test_command = test_commands.clone().get_matches_from(vec![
+            "test",
+            "program",
+            "close",
+            &buffer_pubkey.to_string(),
+            "--bypass-warning",
+        ]);
+        assert_eq!(
+            parse_command(&test_command, &default_signer, &mut None).unwrap(),
+            CliCommandInfo {
+                command: CliCommand::Program(ProgramCliCommand::Close {
+                    account_pubkey: Some(buffer_pubkey),
+                    recipient_pubkey: default_keypair.pubkey(),
+                    authority_index: 0,
+                    use_lamports_unit: false,
+                    bypass_warning: true,
                 }),
                 signers: vec![read_keypair_file(&keypair_file).unwrap().into()],
             }
@@ -3011,6 +2997,7 @@ mod tests {
                     recipient_pubkey: default_keypair.pubkey(),
                     authority_index: 1,
                     use_lamports_unit: false,
+                    bypass_warning: false,
                 }),
                 signers: vec![
                     read_keypair_file(&keypair_file).unwrap().into(),
@@ -3036,6 +3023,7 @@ mod tests {
                     recipient_pubkey,
                     authority_index: 0,
                     use_lamports_unit: false,
+                    bypass_warning: false,
                 }),
                 signers: vec![read_keypair_file(&keypair_file).unwrap().into(),],
             }
@@ -3057,6 +3045,7 @@ mod tests {
                     recipient_pubkey: default_keypair.pubkey(),
                     authority_index: 0,
                     use_lamports_unit: true,
+                    bypass_warning: false,
                 }),
                 signers: vec![read_keypair_file(&keypair_file).unwrap().into(),],
             }

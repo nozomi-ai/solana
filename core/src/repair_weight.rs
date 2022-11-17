@@ -296,7 +296,7 @@ impl RepairWeight {
                 new_root,
             );
 
-            new_root_tree.set_root((new_root, Hash::default()));
+            new_root_tree.set_tree_root((new_root, Hash::default()));
 
             // Update `self.slot_to_tree` to reflect new root
             self.rename_tree_root(&new_root_tree, new_root);
@@ -310,8 +310,7 @@ impl RepairWeight {
         // Purge `self.unrooted_slots` of slots less than `new_root` as we know any
         // unrooted votes for slots < `new_root` will now be rejected, so we won't
         // need to check `self.unrooted_slots` to see if those slots are unrooted.
-        let mut new_unrooted_slots = self.unrooted_slots.split_off(&new_root);
-        std::mem::swap(&mut self.unrooted_slots, &mut new_unrooted_slots);
+        self.unrooted_slots = self.unrooted_slots.split_off(&new_root);
         self.root = new_root;
     }
 
@@ -453,7 +452,7 @@ impl RepairWeight {
     }
 
     // Attempts to chain the orphan subtree rooted at `orphan_tree_root`
-    // to any earlier subtree with new any ancestry information in `blockstore`.
+    // to any earlier subtree with new ancestry information in `blockstore`.
     // Returns the earliest known ancestor of `heaviest_tree_root`.
     fn update_orphan_ancestors(
         &mut self,
@@ -476,16 +475,13 @@ impl RepairWeight {
                     .get_mut(&orphan_tree_root)
                     .expect("Orphan must exist");
 
-                let num_skip = if parent_tree_root.is_some() {
-                    // Skip the leaf of the parent tree that the
-                    // orphan would merge with later in a call
-                    // to `merge_trees`
-                    1
-                } else {
-                    0
-                };
+                // Skip the leaf of the parent tree that the orphan would merge
+                // with later in a call to `merge_trees`
+                let num_skip = usize::from(parent_tree_root.is_some());
 
                 for ancestor in new_ancestors.iter().skip(num_skip).rev() {
+                    // We temporarily use orphan_tree_root as the tree root and later
+                    // rename tree root to either the parent_tree_root or the earliest_ancestor
                     self.slot_to_tree.insert(*ancestor, orphan_tree_root);
                     heaviest_tree.add_root_parent((*ancestor, Hash::default()));
                 }
@@ -1149,11 +1145,14 @@ mod test {
         assert_eq!(*repair_weight.slot_to_tree.get(&2).unwrap(), 1);
 
         // Trees tracked should be updated
-        assert_eq!(repair_weight.trees.get(&1).unwrap().root().0, 1);
+        assert_eq!(repair_weight.trees.get(&1).unwrap().tree_root().0, 1);
 
         // Orphan slots should not be changed
         for orphan in &[8, 20] {
-            assert_eq!(repair_weight.trees.get(orphan).unwrap().root().0, *orphan);
+            assert_eq!(
+                repair_weight.trees.get(orphan).unwrap().tree_root().0,
+                *orphan
+            );
             assert_eq!(repair_weight.slot_to_tree.get(orphan).unwrap(), orphan);
         }
     }
@@ -1177,7 +1176,10 @@ mod test {
 
         // Orphan slots should not be changed
         for orphan in &[8, 20] {
-            assert_eq!(repair_weight.trees.get(orphan).unwrap().root().0, *orphan);
+            assert_eq!(
+                repair_weight.trees.get(orphan).unwrap().tree_root().0,
+                *orphan
+            );
             assert_eq!(repair_weight.slot_to_tree.get(orphan).unwrap(), orphan);
         }
     }
@@ -1199,7 +1201,7 @@ mod test {
         assert!(!repair_weight.slot_to_tree.contains_key(&8));
 
         // Other higher orphan branch rooted at slot `20` remains unchanged
-        assert_eq!(repair_weight.trees.get(&20).unwrap().root().0, 20);
+        assert_eq!(repair_weight.trees.get(&20).unwrap().tree_root().0, 20);
         assert_eq!(*repair_weight.slot_to_tree.get(&20).unwrap(), 20);
     }
 
@@ -1240,7 +1242,7 @@ mod test {
 
         // Orphan 20 should still exist
         assert_eq!(repair_weight.trees.len(), 2);
-        assert_eq!(repair_weight.trees.get(&20).unwrap().root().0, 20);
+        assert_eq!(repair_weight.trees.get(&20).unwrap().tree_root().0, 20);
         assert_eq!(*repair_weight.slot_to_tree.get(&20).unwrap(), 20);
 
         // Now set root at a slot 30 that doesnt exist in `repair_weight`, but is
@@ -1411,7 +1413,10 @@ mod test {
 
         // Check orphans are present
         for orphan in &[8, 20] {
-            assert_eq!(repair_weight.trees.get(orphan).unwrap().root().0, *orphan);
+            assert_eq!(
+                repair_weight.trees.get(orphan).unwrap().tree_root().0,
+                *orphan
+            );
             assert_eq!(repair_weight.slot_to_tree.get(orphan).unwrap(), orphan);
         }
         (blockstore, bank, repair_weight)
@@ -1429,7 +1434,7 @@ mod test {
 
         // Validate new root
         assert_eq!(
-            repair_weight.trees.get(&new_root).unwrap().root().0,
+            repair_weight.trees.get(&new_root).unwrap().tree_root().0,
             new_root
         );
         assert_eq!(

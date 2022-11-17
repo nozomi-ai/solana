@@ -26,7 +26,7 @@ use {
 pub struct Keypair(ed25519_dalek::Keypair);
 
 impl Keypair {
-    /// Constructs a new, random `Keypair` using a caller-proveded RNG
+    /// Constructs a new, random `Keypair` using a caller-provided RNG
     pub fn generate<R>(csprng: &mut R) -> Self
     where
         R: CryptoRng + RngCore,
@@ -63,6 +63,21 @@ impl Keypair {
     /// Gets this `Keypair`'s SecretKey
     pub fn secret(&self) -> &ed25519_dalek::SecretKey {
         &self.0.secret
+    }
+
+    /// Allows Keypair cloning
+    ///
+    /// Note that the `Clone` trait is intentionally unimplemented because making a
+    /// second copy of sensitive secret keys in memory is usually a bad idea.
+    ///
+    /// Only use this in tests or when strictly required. Consider using Arc<Keypair>
+    /// instead.
+    pub fn insecure_clone(&self) -> Self {
+        Self(ed25519_dalek::Keypair {
+            // This will never error since self is a valid keypair
+            secret: ed25519_dalek::SecretKey::from_bytes(self.0.secret.as_bytes()).unwrap(),
+            public: self.0.public,
+        })
     }
 }
 
@@ -118,7 +133,7 @@ pub fn write_keypair<W: Write>(
 ) -> Result<String, Box<dyn error::Error>> {
     let keypair_bytes = keypair.0.to_bytes();
     let serialized = serde_json::to_string(&keypair_bytes.to_vec())?;
-    writer.write_all(&serialized.clone().into_bytes())?;
+    writer.write_all(serialized.as_bytes())?;
     Ok(serialized)
 }
 

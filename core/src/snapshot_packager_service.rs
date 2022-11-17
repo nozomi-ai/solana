@@ -10,7 +10,7 @@ use {
             FullSnapshotHash, FullSnapshotHashes, IncrementalSnapshotHash,
             IncrementalSnapshotHashes, StartingSnapshotHashes,
         },
-        snapshot_package::{PendingSnapshotPackage, SnapshotType},
+        snapshot_package::{retain_max_n_elements, PendingSnapshotPackage, SnapshotType},
         snapshot_utils,
     },
     solana_sdk::{clock::Slot, hash::Hash},
@@ -49,7 +49,7 @@ impl SnapshotPackagerService {
         );
 
         let t_snapshot_packager = Builder::new()
-            .name("snapshot-packager".to_string())
+            .name("solSnapshotPkgr".to_string())
             .spawn(move || {
                 renice_this_thread(snapshot_config.packager_thread_niceness_adj).unwrap();
                 let mut snapshot_gossip_manager = if enable_gossip_push {
@@ -94,7 +94,7 @@ impl SnapshotPackagerService {
                     if let Some(snapshot_gossip_manager) = snapshot_gossip_manager.as_mut() {
                         snapshot_gossip_manager.push_snapshot_hash(
                             snapshot_package.snapshot_type,
-                            (snapshot_package.slot(), *snapshot_package.hash()),
+                            (snapshot_package.slot(), snapshot_package.hash().0),
                         );
                     }
                 }
@@ -166,9 +166,12 @@ impl SnapshotGossipManager {
         self.full_snapshot_hashes
             .hashes
             .push(full_snapshot_hash.hash);
-        while self.full_snapshot_hashes.hashes.len() > self.max_full_snapshot_hashes {
-            self.full_snapshot_hashes.hashes.remove(0);
-        }
+
+        retain_max_n_elements(
+            &mut self.full_snapshot_hashes.hashes,
+            self.max_full_snapshot_hashes,
+        );
+
         self.cluster_info
             .push_snapshot_hashes(self.full_snapshot_hashes.hashes.clone());
     }
@@ -190,9 +193,12 @@ impl SnapshotGossipManager {
         self.incremental_snapshot_hashes
             .hashes
             .push(incremental_snapshot_hash.hash);
-        while self.incremental_snapshot_hashes.hashes.len() > self.max_incremental_snapshot_hashes {
-            self.incremental_snapshot_hashes.hashes.remove(0);
-        }
+
+        retain_max_n_elements(
+            &mut self.incremental_snapshot_hashes.hashes,
+            self.max_incremental_snapshot_hashes,
+        );
+
         // Pushing incremental snapshot hashes to the cluster should never fail.  The only error
         // case is when the length of the hashes is too big, but we account for that with
         // `max_incremental_snapshot_hashes`.  If this call ever does error, it's a programmer bug!
@@ -219,6 +225,7 @@ mod tests {
             accounts_db::AccountStorageEntry,
             bank::BankSlotDelta,
             snapshot_archive_info::SnapshotArchiveInfo,
+            snapshot_hash::SnapshotHash,
             snapshot_package::{SnapshotPackage, SnapshotType},
             snapshot_utils::{
                 self, ArchiveFormat, SnapshotVersion, SNAPSHOT_STATUS_CACHE_FILENAME,
@@ -292,18 +299,18 @@ mod tests {
             .collect();
 
         // Create directory of hard links for snapshots
-        let link_snapshots_dir = tempfile::tempdir_in(&temp_dir).unwrap();
+        let link_snapshots_dir = tempfile::tempdir_in(temp_dir).unwrap();
         for snapshots_path in snapshots_paths {
             let snapshot_file_name = snapshots_path.file_name().unwrap();
             let link_snapshots_dir = link_snapshots_dir.path().join(snapshot_file_name);
             fs::create_dir_all(&link_snapshots_dir).unwrap();
             let link_path = link_snapshots_dir.join(snapshot_file_name);
-            fs::hard_link(&snapshots_path, &link_path).unwrap();
+            fs::hard_link(&snapshots_path, link_path).unwrap();
         }
 
         // Create a packageable snapshot
         let slot = 42;
-        let hash = Hash::default();
+        let hash = SnapshotHash(Hash::default());
         let archive_format = ArchiveFormat::TarBzip2;
         let output_tar_path = snapshot_utils::build_full_snapshot_archive_path(
             &full_snapshot_archives_dir,

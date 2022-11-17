@@ -48,11 +48,28 @@ pub struct DosClientParameters {
     #[clap(long, help = "Allow contacting private ip addresses")]
     pub allow_private_addr: bool,
 
+    #[clap(
+        long,
+        default_value = "1",
+        help = "Number of threads generating transactions"
+    )]
+    pub num_gen_threads: usize,
+
     #[clap(flatten)]
     pub transaction_params: TransactionParams,
+
+    #[clap(
+        long,
+        conflicts_with("skip-gossip"),
+        help = "Submit transactions via QUIC"
+    )]
+    pub tpu_use_quic: bool,
+
+    #[clap(long, default_value = "16384", help = "Size of the transactions batch")]
+    pub send_batch_size: usize,
 }
 
-#[derive(Args, Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
+#[derive(Args, Clone, Serialize, Deserialize, Debug, Default, PartialEq, Eq)]
 #[clap(rename_all = "kebab-case")]
 pub struct TransactionParams {
     #[clap(
@@ -210,7 +227,10 @@ mod tests {
                 data_input: Some(pubkey),
                 skip_gossip: false,
                 allow_private_addr: false,
-                transaction_params: TransactionParams::default()
+                transaction_params: TransactionParams::default(),
+                tpu_use_quic: false,
+                num_gen_threads: 1,
+                send_batch_size: 16384,
             },
         );
     }
@@ -228,6 +248,9 @@ mod tests {
             "--valid-signatures",
             "--num-signatures",
             "8",
+            "--tpu-use-quic",
+            "--send-batch-size",
+            "1",
         ])
         .unwrap();
         assert_eq!(
@@ -240,6 +263,7 @@ mod tests {
                 data_input: None,
                 skip_gossip: false,
                 allow_private_addr: false,
+                num_gen_threads: 1,
                 transaction_params: TransactionParams {
                     num_signatures: Some(8),
                     valid_blockhash: false,
@@ -248,6 +272,8 @@ mod tests {
                     transaction_type: None,
                     num_instructions: None,
                 },
+                tpu_use_quic: true,
+                send_batch_size: 1,
             },
         );
     }
@@ -267,6 +293,8 @@ mod tests {
             "transfer",
             "--num-instructions",
             "1",
+            "--send-batch-size",
+            "1",
         ])
         .unwrap();
         assert_eq!(
@@ -279,6 +307,7 @@ mod tests {
                 data_input: None,
                 skip_gossip: false,
                 allow_private_addr: false,
+                num_gen_threads: 1,
                 transaction_params: TransactionParams {
                     num_signatures: None,
                     valid_blockhash: true,
@@ -287,6 +316,8 @@ mod tests {
                     transaction_type: Some(TransactionType::Transfer),
                     num_instructions: Some(1),
                 },
+                tpu_use_quic: false,
+                send_batch_size: 1,
             },
         );
 
@@ -321,6 +352,8 @@ mod tests {
             "transfer",
             "--num-instructions",
             "8",
+            "--send-batch-size",
+            "1",
         ])
         .unwrap();
         assert_eq!(
@@ -333,6 +366,7 @@ mod tests {
                 data_input: None,
                 skip_gossip: false,
                 allow_private_addr: false,
+                num_gen_threads: 1,
                 transaction_params: TransactionParams {
                     num_signatures: None,
                     valid_blockhash: true,
@@ -341,6 +375,8 @@ mod tests {
                     transaction_type: Some(TransactionType::Transfer),
                     num_instructions: Some(8),
                 },
+                tpu_use_quic: false,
+                send_batch_size: 1,
             },
         );
     }
@@ -358,6 +394,8 @@ mod tests {
             "--valid-blockhash",
             "--transaction-type",
             "account-creation",
+            "--send-batch-size",
+            "1",
         ])
         .unwrap();
         assert_eq!(
@@ -370,6 +408,7 @@ mod tests {
                 data_input: None,
                 skip_gossip: false,
                 allow_private_addr: false,
+                num_gen_threads: 1,
                 transaction_params: TransactionParams {
                     num_signatures: None,
                     valid_blockhash: true,
@@ -378,6 +417,8 @@ mod tests {
                     transaction_type: Some(TransactionType::AccountCreation),
                     num_instructions: None,
                 },
+                tpu_use_quic: false,
+                send_batch_size: 1,
             },
         );
     }

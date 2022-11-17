@@ -2,11 +2,11 @@ import React from "react";
 import { Link, useHistory, useLocation } from "react-router-dom";
 import { Location } from "history";
 import {
-  BlockResponse,
   ConfirmedTransactionMeta,
   TransactionSignature,
   PublicKey,
   VOTE_PROGRAM_ID,
+  VersionedBlockResponse,
 } from "@solana/web3.js";
 import { ErrorCard } from "components/common/ErrorCard";
 import { Signature } from "components/common/Signature";
@@ -15,6 +15,7 @@ import { pickClusterParams, useQuery } from "utils/url";
 import { useCluster } from "providers/cluster";
 import { displayAddress } from "utils/tx";
 import { parseProgramLogs } from "utils/program-logs";
+import { SolBalance } from "components/common/SolBalance";
 
 const PAGE_SIZE = 25;
 
@@ -33,10 +34,11 @@ const useQueryAccountFilter = (query: URLSearchParams): PublicKey | null => {
   return null;
 };
 
-type SortMode = "index" | "compute";
+type SortMode = "index" | "compute" | "fee";
 const useQuerySort = (query: URLSearchParams): SortMode => {
   const sort = query.get("sort");
   if (sort === "compute") return "compute";
+  if (sort === "fee") return "fee";
   return "index";
 };
 
@@ -49,7 +51,7 @@ type TransactionWithInvocations = {
   logTruncated: boolean;
 };
 
-export function BlockHistoryCard({ block }: { block: BlockResponse }) {
+export function BlockHistoryCard({ block }: { block: VersionedBlockResponse }) {
   const [numDisplayed, setNumDisplayed] = React.useState(PAGE_SIZE);
   const [showDropdown, setDropdown] = React.useState(false);
   const query = useQuery();
@@ -70,7 +72,7 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
           signature = tx.transaction.signatures[0];
         }
 
-        let programIndexes = tx.transaction.message.instructions
+        let programIndexes = tx.transaction.message.compiledInstructions
           .map((ix) => ix.programIdIndex)
           .concat(
             tx.meta?.innerInstructions?.flatMap((ix) => {
@@ -85,8 +87,11 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
         });
 
         const invocations = new Map<string, number>();
+        const accountKeys = tx.transaction.message.getAccountKeys({
+          accountKeysFromLookups: tx.meta?.loadedAddresses,
+        });
         for (const [i, count] of indexMap.entries()) {
-          const programId = tx.transaction.message.accountKeys[i].toBase58();
+          const programId = accountKeys.get(i)!.toBase58();
           invocations.set(programId, count);
           const programTransactionCount = invokedPrograms.get(programId) || 0;
           invokedPrograms.set(programId, programTransactionCount + 1);
@@ -133,7 +138,7 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
           return true;
         } else if (programFilter === HIDE_VOTES) {
           // hide vote txs that don't invoke any other programs
-          return !(invocations.size === 1 || invocations.has(voteFilter));
+          return !(invocations.has(voteFilter) && invocations.size === 1);
         }
         return invocations.has(programFilter);
       })
@@ -141,8 +146,15 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
         if (accountFilter === null) {
           return true;
         }
-        const tx = block.transactions[index].transaction;
-        return tx.message.accountKeys.find((key) => key.equals(accountFilter));
+
+        const tx = block.transactions[index];
+        const accountKeys = tx.transaction.message.getAccountKeys({
+          accountKeysFromLookups: tx.meta?.loadedAddresses,
+        });
+        return accountKeys
+          .keySegments()
+          .flat()
+          .find((key) => key.equals(accountFilter));
       });
 
     const showComputeUnits = filteredTxs.every(
@@ -151,6 +163,8 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
 
     if (sortMode === "compute" && showComputeUnits) {
       filteredTxs.sort((a, b) => b.computeUnits! - a.computeUnits!);
+    } else if (sortMode === "fee") {
+      filteredTxs.sort((a, b) => (b.meta?.fee || 0) - (a.meta?.fee || 0));
     }
 
     return [filteredTxs, showComputeUnits];
@@ -217,9 +231,18 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
                 </th>
                 <th className="text-muted">Result</th>
                 <th className="text-muted">Transaction Signature</th>
+                <th
+                  className="text-muted text-end c-pointer"
+                  onClick={() => {
+                    query.set("sort", "fee");
+                    history.push(pickClusterParams(location, query));
+                  }}
+                >
+                  Fee
+                </th>
                 {showComputeUnits && (
                   <th
-                    className="text-muted c-pointer"
+                    className="text-muted text-end c-pointer"
                     onClick={() => {
                       query.set("sort", "compute");
                       history.push(pickClusterParams(location, query));
@@ -267,6 +290,15 @@ export function BlockHistoryCard({ block }: { block: BlockResponse }) {
                     </td>
 
                     <td>{signature}</td>
+
+                    <td className="text-end">
+                      {tx.meta !== null ? (
+                        <SolBalance lamports={tx.meta.fee} />
+                      ) : (
+                        "Unknown"
+                      )}
+                    </td>
+
                     {showComputeUnits && (
                       <td className="text-end">
                         {tx.logTruncated && ">"}

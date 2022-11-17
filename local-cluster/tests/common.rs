@@ -1,7 +1,6 @@
 #![allow(clippy::integer_arithmetic, dead_code)]
 use {
     log::*,
-    solana_client::rpc_client::RpcClient,
     solana_core::{
         broadcast_stage::BroadcastStageType,
         consensus::{Tower, SWITCH_FORK_THRESHOLD},
@@ -12,7 +11,7 @@ use {
     solana_ledger::{
         ancestor_iterator::AncestorIterator,
         blockstore::{Blockstore, PurgeType},
-        blockstore_db::{AccessType, BlockstoreOptions},
+        blockstore_options::{AccessType, BlockstoreOptions},
         leader_schedule::{FixedSchedule, LeaderSchedule},
     },
     solana_local_cluster::{
@@ -21,6 +20,7 @@ use {
         local_cluster::{ClusterConfig, LocalCluster},
         validator_configs::*,
     },
+    solana_rpc_client::rpc_client::RpcClient,
     solana_runtime::snapshot_config::SnapshotConfig,
     solana_sdk::{
         account::AccountSharedData,
@@ -103,9 +103,9 @@ pub fn open_blockstore(ledger_path: &Path) -> Blockstore {
     })
 }
 
-pub fn purge_slots(blockstore: &Blockstore, start_slot: Slot, slot_count: Slot) {
-    blockstore.purge_from_next_slots(start_slot, start_slot + slot_count);
-    blockstore.purge_slots(start_slot, start_slot + slot_count, PurgeType::Exact);
+pub fn purge_slots_with_count(blockstore: &Blockstore, start_slot: Slot, slot_count: Slot) {
+    blockstore.purge_from_next_slots(start_slot, start_slot + slot_count - 1);
+    blockstore.purge_slots(start_slot, start_slot + slot_count - 1, PurgeType::Exact);
 }
 
 // Fetches the last vote in the tower, blocking until it has also appeared in blockstore.
@@ -277,7 +277,7 @@ pub fn run_cluster_partition<C>(
     let cluster_lamports = node_stakes.iter().sum::<u64>() * 2;
     let turbine_disabled = Arc::new(AtomicBool::new(false));
     let mut validator_config = ValidatorConfig {
-        turbine_disabled: Some(turbine_disabled.clone()),
+        turbine_disabled: turbine_disabled.clone(),
         ..ValidatorConfig::default_for_test()
     };
 
@@ -336,6 +336,7 @@ pub fn run_cluster_partition<C>(
         num_nodes,
         HashSet::new(),
         SocketAddrSpace::Unspecified,
+        &cluster.connection_cache,
     );
 
     let cluster_nodes = discover_cluster(
@@ -456,6 +457,7 @@ impl SnapshotValidatorConfig {
     ) -> SnapshotValidatorConfig {
         assert!(accounts_hash_interval_slots > 0);
         assert!(full_snapshot_archive_interval_slots > 0);
+        assert!(full_snapshot_archive_interval_slots != Slot::MAX);
         assert!(full_snapshot_archive_interval_slots % accounts_hash_interval_slots == 0);
         if incremental_snapshot_archive_interval_slots != Slot::MAX {
             assert!(incremental_snapshot_archive_interval_slots > 0);

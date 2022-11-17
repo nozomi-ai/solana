@@ -15,8 +15,9 @@ use {
         OutputFormat,
     },
     solana_ledger::{
-        bigtable_upload::ConfirmedBlockUploadConfig, blockstore::Blockstore,
-        blockstore_db::AccessType,
+        bigtable_upload::ConfirmedBlockUploadConfig,
+        blockstore::Blockstore,
+        blockstore_options::{AccessType, ShredStorageType},
     },
     solana_sdk::{clock::Slot, pubkey::Pubkey, signature::Signature},
     solana_storage_bigtable::CredentialType,
@@ -25,17 +26,19 @@ use {
         UiTransactionEncoding,
     },
     std::{
+        cmp::min,
         collections::HashSet,
         path::Path,
         process::exit,
         result::Result,
+        str::FromStr,
         sync::{atomic::AtomicBool, Arc},
     },
 };
 
 async fn upload(
     blockstore: Blockstore,
-    starting_slot: Slot,
+    mut starting_slot: Slot,
     ending_slot: Option<Slot>,
     force_reupload: bool,
     config: solana_storage_bigtable::LedgerStorageConfig,
@@ -48,19 +51,29 @@ async fn upload(
         force_reupload,
         ..ConfirmedBlockUploadConfig::default()
     };
+    let blockstore = Arc::new(blockstore);
 
-    solana_ledger::bigtable_upload::upload_confirmed_blocks(
-        Arc::new(blockstore),
-        bigtable,
-        starting_slot,
-        ending_slot,
-        config,
-        Arc::new(AtomicBool::new(false)),
-    )
-    .await
-    .map(|last_slot_uploaded| {
+    let ending_slot = ending_slot.unwrap_or_else(|| blockstore.last_root());
+
+    while starting_slot <= ending_slot {
+        let current_ending_slot = min(
+            ending_slot,
+            starting_slot.saturating_add(config.max_num_slots_to_check as u64 * 2),
+        );
+        let last_slot_uploaded = solana_ledger::bigtable_upload::upload_confirmed_blocks(
+            blockstore.clone(),
+            bigtable.clone(),
+            starting_slot,
+            current_ending_slot,
+            config.clone(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .await?;
         info!("last slot uploaded: {}", last_slot_uploaded);
-    })
+        starting_slot = last_slot_uploaded.saturating_add(1);
+    }
+    info!("No more blocks to upload.");
+    Ok(())
 }
 
 async fn delete_slots(
@@ -200,7 +213,7 @@ async fn confirm(
                 let decoded_tx = confirmed_tx.get_transaction();
                 let encoded_tx_with_meta = confirmed_tx
                     .tx_with_meta
-                    .encode(UiTransactionEncoding::Json, Some(0))
+                    .encode(UiTransactionEncoding::Json, Some(0), true)
                     .map_err(|_| "Failed to encode transaction in block".to_string())?;
                 transaction = Some(CliTransaction {
                     transaction: encoded_tx_with_meta.transaction,
@@ -264,7 +277,7 @@ pub async fn transaction_history(
                     "{}, slot={}, memo=\"{}\", status={}",
                     result.signature,
                     result.slot,
-                    result.memo.unwrap_or_else(|| "".to_string()),
+                    result.memo.unwrap_or_default(),
                     match result.err {
                         None => "Confirmed".to_string(),
                         Some(err) => format!("Failed: {:?}", err),
@@ -342,6 +355,15 @@ impl BigTableSubCommand for App<'_, '_> {
                         .value_name("INSTANCE_NAME")
                         .default_value(solana_storage_bigtable::DEFAULT_INSTANCE_NAME)
                         .help("Name of the target Bigtable instance")
+                )
+                .arg(
+                    Arg::with_name("rpc_bigtable_app_profile_id")
+                        .global(true)
+                        .long("rpc-bigtable-app-profile-id")
+                        .takes_value(true)
+                        .value_name("APP_PROFILE_ID")
+                        .default_value(solana_storage_bigtable::DEFAULT_APP_PROFILE_ID)
+                        .help("Bigtable application profile id to use in requests")
                 )
                 .subcommand(
                     SubCommand::with_name("upload")
@@ -469,6 +491,14 @@ impl BigTableSubCommand for App<'_, '_> {
                                 .value_name("INSTANCE_NAME")
                                 .default_value(solana_storage_bigtable::DEFAULT_INSTANCE_NAME)
                                 .help("Name of the reference Bigtable instance to compare to")
+                        )
+                        .arg(
+                            Arg::with_name("reference_app_profile_id")
+                                .long("reference-app-profile-id")
+                                .takes_value(true)
+                                .value_name("APP_PROFILE_ID")
+                                .default_value(solana_storage_bigtable::DEFAULT_APP_PROFILE_ID)
+                                .help("Reference Bigtable application profile id to use in requests")
                         ),
                 )
                 .subcommand(
@@ -559,12 +589,12 @@ impl BigTableSubCommand for App<'_, '_> {
     }
 }
 
-pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
-    let runtime = tokio::runtime::Runtime::new().unwrap();
-
-    let verbose = matches.is_present("verbose");
-    let output_format = OutputFormat::from_matches(matches, "output_format", verbose);
-
+fn get_global_subcommand_arg<T: FromStr>(
+    matches: &ArgMatches<'_>,
+    sub_matches: Option<&clap::ArgMatches>,
+    name: &str,
+    default: &str,
+) -> T {
     // this is kinda stupid, but there seems to be a bug in clap when a subcommand
     // arg is marked both `global(true)` and `default_value("default_value")`.
     // despite the "global", when the arg is specified on the subcommand, its value
@@ -574,17 +604,42 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
     // again resulting in the default value. the arg having declared a
     // `default_value()` obviates `is_present(...)` tests since they will always
     // return true. so we consede and compare against the expected default. :/
-    let (subcommand, sub_matches) = matches.subcommand();
     let on_command = matches
-        .value_of("rpc_bigtable_instance_name")
-        .map(|v| v != solana_storage_bigtable::DEFAULT_INSTANCE_NAME)
+        .value_of(name)
+        .map(|v| v != default)
         .unwrap_or(false);
-    let instance_name = if on_command {
-        value_t_or_exit!(matches, "rpc_bigtable_instance_name", String)
+    if on_command {
+        value_t_or_exit!(matches, name, T)
     } else {
         let sub_matches = sub_matches.as_ref().unwrap();
-        value_t_or_exit!(sub_matches, "rpc_bigtable_instance_name", String)
-    };
+        value_t_or_exit!(sub_matches, name, T)
+    }
+}
+
+pub fn bigtable_process_command(
+    ledger_path: &Path,
+    matches: &ArgMatches<'_>,
+    shred_storage_type: &ShredStorageType,
+) {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+
+    let verbose = matches.is_present("verbose");
+    let force_update_to_open = matches.is_present("force_update_to_open");
+    let output_format = OutputFormat::from_matches(matches, "output_format", verbose);
+
+    let (subcommand, sub_matches) = matches.subcommand();
+    let instance_name = get_global_subcommand_arg(
+        matches,
+        sub_matches,
+        "rpc_bigtable_instance_name",
+        solana_storage_bigtable::DEFAULT_INSTANCE_NAME,
+    );
+    let app_profile_id = get_global_subcommand_arg(
+        matches,
+        sub_matches,
+        "rpc_bigtable_app_profile_id",
+        solana_storage_bigtable::DEFAULT_APP_PROFILE_ID,
+    );
 
     let future = match (subcommand, sub_matches) {
         ("upload", Some(arg_matches)) => {
@@ -595,10 +650,13 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
                 &canonicalize_ledger_path(ledger_path),
                 AccessType::Secondary,
                 None,
+                shred_storage_type,
+                force_update_to_open,
             );
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
             runtime.block_on(upload(
@@ -614,6 +672,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: !arg_matches.is_present("force"),
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
             runtime.block_on(delete_slots(slots, config))
@@ -622,6 +681,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: true,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
             runtime.block_on(first_available_block(config))
@@ -631,6 +691,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
             runtime.block_on(block(slot, output_format, config))
@@ -641,6 +702,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
 
@@ -652,6 +714,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
 
@@ -663,10 +726,13 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
 
             let ref_instance_name =
                 value_t_or_exit!(arg_matches, "reference_instance_name", String);
+            let ref_app_profile_id =
+                value_t_or_exit!(arg_matches, "reference_app_profile_id", String);
             let ref_config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 credential_type: CredentialType::Filepath(credential_path),
                 instance_name: ref_instance_name,
+                app_profile_id: ref_app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
 
@@ -681,6 +747,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: false,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
 
@@ -700,6 +767,7 @@ pub fn bigtable_process_command(ledger_path: &Path, matches: &ArgMatches<'_>) {
             let config = solana_storage_bigtable::LedgerStorageConfig {
                 read_only: true,
                 instance_name,
+                app_profile_id,
                 ..solana_storage_bigtable::LedgerStorageConfig::default()
             };
 

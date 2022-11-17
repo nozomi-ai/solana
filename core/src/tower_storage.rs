@@ -173,7 +173,7 @@ impl TowerStorage for FileTowerStorage {
         trace!("load {}", filename.display());
 
         // Ensure to create parent dir here, because restore() precedes save() always
-        fs::create_dir_all(&filename.parent().unwrap())?;
+        fs::create_dir_all(filename.parent().unwrap())?;
 
         if let Ok(file) = File::open(&filename) {
             // New format
@@ -184,7 +184,7 @@ impl TowerStorage for FileTowerStorage {
                 .and_then(|t: SavedTowerVersions| t.try_into_tower(node_pubkey))
         } else {
             // Old format
-            let file = File::open(&self.old_filename(node_pubkey))?;
+            let file = File::open(self.old_filename(node_pubkey))?;
             let mut stream = BufReader::new(file);
             bincode::deserialize_from(&mut stream)
                 .map_err(|e| e.into())

@@ -4,10 +4,11 @@ use {
     indicatif::{ProgressBar, ProgressStyle},
     log::*,
     solana_runtime::{
+        snapshot_hash::SnapshotHash,
         snapshot_package::SnapshotType,
         snapshot_utils::{self, ArchiveFormat},
     },
-    solana_sdk::{clock::Slot, genesis_config::DEFAULT_GENESIS_ARCHIVE, hash::Hash},
+    solana_sdk::{clock::Slot, genesis_config::DEFAULT_GENESIS_ARCHIVE},
     std::{
         fs::{self, File},
         io::{self, Read},
@@ -23,9 +24,12 @@ static SPARKLE: Emoji = Emoji("✨ ", "");
 /// Creates a new process bar for processing that will take an unknown amount of time
 fn new_spinner_progress_bar() -> ProgressBar {
     let progress_bar = ProgressBar::new(42);
-    progress_bar
-        .set_style(ProgressStyle::default_spinner().template("{spinner:.green} {wide_msg}"));
-    progress_bar.enable_steady_tick(100);
+    progress_bar.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner:.green} {wide_msg}")
+            .expect("ProgresStyle::template direct input to be correct"),
+    );
+    progress_bar.enable_steady_tick(Duration::from_millis(100));
     progress_bar
 }
 
@@ -112,6 +116,7 @@ pub fn download_file<'a, 'b>(
                 .template(
                     "{spinner:.green}{msg_wide}[{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})",
                 )
+                .expect("ProgresStyle::template direct input to be correct")
                 .progress_chars("=> "),
         );
         progress_bar.set_message(format!("{}Downloading~ {}", TRUCK, url));
@@ -256,7 +261,7 @@ pub fn download_snapshot_archive<'a, 'b>(
     rpc_addr: &SocketAddr,
     full_snapshot_archives_dir: &Path,
     incremental_snapshot_archives_dir: &Path,
-    desired_snapshot_hash: (Slot, Hash),
+    desired_snapshot_hash: (Slot, SnapshotHash),
     snapshot_type: SnapshotType,
     maximum_full_snapshot_archives_to_retain: usize,
     maximum_incremental_snapshot_archives_to_retain: usize,

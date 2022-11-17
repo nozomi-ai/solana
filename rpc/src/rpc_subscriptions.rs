@@ -16,14 +16,14 @@ use {
     rayon::prelude::*,
     serde::Serialize,
     solana_account_decoder::{parse_token::is_known_spl_token_id, UiAccount, UiAccountEncoding},
-    solana_client::rpc_response::{
+    solana_ledger::{blockstore::Blockstore, get_tmp_ledger_path},
+    solana_measure::measure::Measure,
+    solana_rayon_threadlimit::get_thread_count,
+    solana_rpc_client_api::response::{
         ProcessedSignatureResult, ReceivedSignatureResult, Response as RpcResponse, RpcBlockUpdate,
         RpcBlockUpdateError, RpcKeyedAccount, RpcLogsResponse, RpcResponseContext,
         RpcSignatureResult, RpcVote, SlotInfo, SlotUpdate,
     },
-    solana_ledger::{blockstore::Blockstore, get_tmp_ledger_path},
-    solana_measure::measure::Measure,
-    solana_rayon_threadlimit::get_thread_count,
     solana_runtime::{
         bank::{Bank, TransactionLogInfo},
         bank_forks::BankForks,
@@ -559,6 +559,7 @@ impl RpcSubscriptions {
             block_commitment_cache,
             optimistically_confirmed_bank,
             &PubSubConfig::default(),
+            None,
         )
     }
 
@@ -573,14 +574,13 @@ impl RpcSubscriptions {
         let blockstore = Blockstore::open(&ledger_path).unwrap();
         let blockstore = Arc::new(blockstore);
 
-        Self::new_with_config(
+        Self::new_for_tests_with_blockstore(
             exit,
             max_complete_transaction_status_slot,
             blockstore,
             bank_forks,
             block_commitment_cache,
             optimistically_confirmed_bank,
-            &PubSubConfig::default_for_tests(),
         )
     }
 
@@ -592,7 +592,9 @@ impl RpcSubscriptions {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
     ) -> Self {
-        Self::new_with_config(
+        let rpc_notifier_ready = Arc::new(AtomicBool::new(false));
+
+        let rpc_subscriptions = Self::new_with_config(
             exit,
             max_complete_transaction_status_slot,
             blockstore,
@@ -600,7 +602,20 @@ impl RpcSubscriptions {
             block_commitment_cache,
             optimistically_confirmed_bank,
             &PubSubConfig::default_for_tests(),
-        )
+            Some(rpc_notifier_ready.clone()),
+        );
+
+        // Ensure RPC notifier is ready to receive notifications before proceeding
+        let start_time = Instant::now();
+        loop {
+            if rpc_notifier_ready.load(Ordering::Relaxed) {
+                break;
+            } else if (Instant::now() - start_time).as_millis() > 5000 {
+                panic!("RPC notifier thread setup took too long");
+            }
+        }
+
+        rpc_subscriptions
     }
 
     pub fn new_with_config(
@@ -611,6 +626,7 @@ impl RpcSubscriptions {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
         config: &PubSubConfig,
+        rpc_notifier_ready: Option<Arc<AtomicBool>>,
     ) -> Self {
         let (notification_sender, notification_receiver) = crossbeam_channel::unbounded();
 
@@ -632,14 +648,17 @@ impl RpcSubscriptions {
         } else {
             Some(
                 Builder::new()
-                    .name("solana-rpc-notifications".to_string())
+                    .name("solRpcNotifier".to_string())
                     .spawn(move || {
                         let pool = rayon::ThreadPoolBuilder::new()
                             .num_threads(notification_threads)
-                            .thread_name(|i| format!("sol-sub-notif-{}", i))
+                            .thread_name(|i| format!("solRpcNotify{:02}", i))
                             .build()
                             .unwrap();
                         pool.install(|| {
+                            if let Some(rpc_notifier_ready) = rpc_notifier_ready {
+                                rpc_notifier_ready.fetch_or(true, Ordering::Relaxed);
+                            }
                             Self::process_notifications(
                                 exit_clone,
                                 max_complete_transaction_status_slot,
@@ -799,7 +818,7 @@ impl RpcSubscriptions {
                             {
                                 debug!("slot notify: {:?}", slot_info);
                                 inc_new_counter_info!("rpc-subscription-notify-slot", 1);
-                                notifier.notify(&slot_info, sub, false);
+                                notifier.notify(slot_info, sub, false);
                             }
                         }
                         NotificationEntry::SlotUpdate(slot_update) => {
@@ -808,7 +827,7 @@ impl RpcSubscriptions {
                                 .get(&SubscriptionParams::SlotsUpdates)
                             {
                                 inc_new_counter_info!("rpc-subscription-notify-slots-updates", 1);
-                                notifier.notify(&slot_update, sub, false);
+                                notifier.notify(slot_update, sub, false);
                             }
                         }
                         // These notifications are only triggered by votes observed on gossip,
@@ -838,7 +857,7 @@ impl RpcSubscriptions {
                             {
                                 debug!("root notify: {:?}", root);
                                 inc_new_counter_info!("rpc-subscription-notify-root", 1);
-                                notifier.notify(&root, sub, false);
+                                notifier.notify(root, sub, false);
                             }
                         }
                         NotificationEntry::Bank(commitment_slots) => {
@@ -1001,10 +1020,7 @@ impl RpcSubscriptions {
                             let mut slots_to_notify: Vec<_> =
                                 (*w_last_unnotified_slot..slot).collect();
                             let ancestors = bank.proper_ancestors_set();
-                            slots_to_notify = slots_to_notify
-                                .into_iter()
-                                .filter(|slot| ancestors.contains(slot))
-                                .collect();
+                            slots_to_notify.retain(|slot| ancestors.contains(slot));
                             slots_to_notify.push(slot);
                             for s in slots_to_notify {
                                 // To avoid skipping a slot that fails this condition,
@@ -1243,7 +1259,7 @@ pub(crate) mod tests {
             rpc_pubsub_service,
         },
         serial_test::serial,
-        solana_client::rpc_config::{
+        solana_rpc_client_api::config::{
             RpcAccountInfoConfig, RpcBlockSubscribeConfig, RpcBlockSubscribeFilter,
             RpcProgramAccountsConfig, RpcSignatureSubscribeConfig, RpcTransactionLogsConfig,
             RpcTransactionLogsFilter,
@@ -1266,7 +1282,14 @@ pub(crate) mod tests {
         },
     };
 
-    fn make_account_result(lamports: u64, subscription: u64, data: &str) -> serde_json::Value {
+    struct AccountResult {
+        lamports: u64,
+        subscription: u64,
+        data: &'static str,
+        space: usize,
+    }
+
+    fn make_account_result(account_result: AccountResult) -> serde_json::Value {
         json!({
            "jsonrpc": "2.0",
            "method": "accountNotification",
@@ -1274,14 +1297,15 @@ pub(crate) mod tests {
                "result": {
                    "context": { "slot": 1 },
                    "value": {
-                       "data": data,
+                       "data": account_result.data,
                        "executable": false,
-                       "lamports": lamports,
+                       "lamports": account_result.lamports,
                        "owner": "11111111111111111111111111111111",
                        "rentEpoch": 0,
+                       "space": account_result.space,
                     },
                },
-               "subscription": subscription,
+               "subscription": account_result.subscription,
            }
         })
     }
@@ -1322,7 +1346,12 @@ pub(crate) mod tests {
             0,
             &system_program::id(),
         );
-        let expected0 = make_account_result(1, 0, "");
+        let expected0 = make_account_result(AccountResult {
+            lamports: 1,
+            subscription: 0,
+            space: 0,
+            data: "",
+        });
 
         let tx1 = {
             let instruction =
@@ -1330,7 +1359,12 @@ pub(crate) mod tests {
             let message = Message::new(&[instruction], Some(&mint_keypair.pubkey()));
             Transaction::new(&[&alice, &mint_keypair], message, blockhash)
         };
-        let expected1 = make_account_result(0, 1, "");
+        let expected1 = make_account_result(AccountResult {
+            lamports: 0,
+            subscription: 1,
+            space: 0,
+            data: "",
+        });
 
         let tx2 = system_transaction::create_account(
             &mint_keypair,
@@ -1340,7 +1374,12 @@ pub(crate) mod tests {
             1024,
             &system_program::id(),
         );
-        let expected2 = make_account_result(1, 2, "error: data too large for bs58 encoding");
+        let expected2 = make_account_result(AccountResult {
+            lamports: 1,
+            subscription: 2,
+            space: 1024,
+            data: "error: data too large for bs58 encoding",
+        });
 
         let subscribe_cases = vec![
             (alice.pubkey(), tx0, expected0),
@@ -1833,6 +1872,7 @@ pub(crate) mod tests {
                           "lamports": 1,
                           "owner": "Stake11111111111111111111111111111111111111",
                           "rentEpoch": 0,
+                          "space": 16,
                        },
                        "pubkey": alice.pubkey().to_string(),
                     },
@@ -1999,6 +2039,7 @@ pub(crate) mod tests {
                               "lamports": lamports,
                               "owner": "Stake11111111111111111111111111111111111111",
                               "rentEpoch": 0,
+                              "space": 16,
                            },
                            "pubkey": pubkey,
                         },
@@ -2279,6 +2320,7 @@ pub(crate) mod tests {
                               "lamports": lamports,
                               "owner": "Stake11111111111111111111111111111111111111",
                               "rentEpoch": 0,
+                              "space": 16,
                            },
                            "pubkey": pubkey,
                         },
@@ -2767,6 +2809,7 @@ pub(crate) mod tests {
                        "lamports": 1,
                        "owner": "Stake11111111111111111111111111111111111111",
                        "rentEpoch": 0,
+                       "space": 16,
                     },
                },
                "subscription": 0,
@@ -2816,6 +2859,7 @@ pub(crate) mod tests {
                        "lamports": 1,
                        "owner": "Stake11111111111111111111111111111111111111",
                        "rentEpoch": 0,
+                       "space": 16,
                     },
                },
                "subscription": 1,

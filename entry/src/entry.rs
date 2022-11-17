@@ -35,10 +35,7 @@ use {
     std::{
         cmp,
         ffi::OsStr,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc, Mutex, Once,
-        },
+        sync::{Arc, Mutex, Once},
         thread::{self, JoinHandle},
         time::Instant,
     },
@@ -49,7 +46,7 @@ use {
 lazy_static! {
     static ref PAR_THREAD_POOL: ThreadPool = rayon::ThreadPoolBuilder::new()
         .num_threads(get_max_thread_count())
-        .thread_name(|ix| format!("entry_{}", ix))
+        .thread_name(|ix| format!("solEntry{:02}", ix))
         .build()
         .unwrap();
 }
@@ -473,24 +470,6 @@ pub fn start_verify_transactions(
     let entries = verify_transactions(entries, Arc::new(verify_func));
     match entries {
         Ok(entries) => {
-            let num_transactions: usize = entries
-                .iter()
-                .map(|entry: &EntryType| -> usize {
-                    match entry {
-                        EntryType::Transactions(transactions) => transactions.len(),
-                        EntryType::Tick(_) => 0,
-                    }
-                })
-                .sum();
-
-            if num_transactions == 0 {
-                return Ok(EntrySigVerificationState {
-                    verification_status: EntryVerificationStatus::Success,
-                    entries: Some(entries),
-                    device_verification_data: DeviceSigVerificationData::Cpu(),
-                    gpu_verify_duration_us: 0,
-                });
-            }
             let entry_txs: Vec<&SanitizedTransaction> = entries
                 .iter()
                 .filter_map(|entry_type| match entry_type {
@@ -499,38 +478,42 @@ pub fn start_verify_transactions(
                 })
                 .flatten()
                 .collect::<Vec<_>>();
-            let total_packets = AtomicUsize::new(0);
+
+            if entry_txs.is_empty() {
+                return Ok(EntrySigVerificationState {
+                    verification_status: EntryVerificationStatus::Success,
+                    entries: Some(entries),
+                    device_verification_data: DeviceSigVerificationData::Cpu(),
+                    gpu_verify_duration_us: 0,
+                });
+            }
+
             let mut packet_batches = entry_txs
                 .par_iter()
                 .chunks(PACKETS_PER_BATCH)
                 .map(|slice| {
                     let vec_size = slice.len();
-                    total_packets.fetch_add(vec_size, Ordering::Relaxed);
                     let mut packet_batch = PacketBatch::new_with_recycler(
                         verify_recyclers.packet_recycler.clone(),
                         vec_size,
                         "entry-sig-verify",
                     );
-                    // We use set_len here instead of resize(num_transactions, Packet::default()), to save
+                    // We use set_len here instead of resize(vec_size, Packet::default()), to save
                     // memory bandwidth and avoid writing a large amount of data that will be overwritten
                     // soon afterwards. As well, Packet::default() actually leaves the packet data
-                    // uninitialized anyway, so the initilization would simply write junk into
+                    // uninitialized, so the initialization would simply write junk into
                     // the vector anyway.
                     unsafe {
-                        packet_batch.packets.set_len(vec_size);
+                        packet_batch.set_len(vec_size);
                     }
                     let entry_tx_iter = slice
                         .into_par_iter()
                         .map(|tx| tx.to_versioned_transaction());
 
-                    let res = packet_batch
-                        .packets
-                        .par_iter_mut()
-                        .zip(entry_tx_iter)
-                        .all(|pair| {
-                            pair.0.meta = Meta::default();
-                            Packet::populate_packet(pair.0, None, &pair.1).is_ok()
-                        });
+                    let res = packet_batch.par_iter_mut().zip(entry_tx_iter).all(|pair| {
+                        pair.0.meta = Meta::default();
+                        Packet::populate_packet(pair.0, None, &pair.1).is_ok()
+                    });
                     if res {
                         Ok(packet_batch)
                     } else {
@@ -541,21 +524,25 @@ pub fn start_verify_transactions(
 
             let tx_offset_recycler = verify_recyclers.tx_offset_recycler;
             let out_recycler = verify_recyclers.out_recycler;
-            let gpu_verify_thread = thread::spawn(move || {
-                let mut verify_time = Measure::start("sigverify");
-                sigverify::ed25519_verify(
-                    &mut packet_batches,
-                    &tx_offset_recycler,
-                    &out_recycler,
-                    false,
-                    total_packets.load(Ordering::Relaxed),
-                );
-                let verified = packet_batches
-                    .iter()
-                    .all(|batch| batch.packets.iter().all(|p| !p.meta.discard()));
-                verify_time.stop();
-                (verified, verify_time.as_us())
-            });
+            let num_packets = entry_txs.len();
+            let gpu_verify_thread = thread::Builder::new()
+                .name("solGpuSigVerify".into())
+                .spawn(move || {
+                    let mut verify_time = Measure::start("sigverify");
+                    sigverify::ed25519_verify(
+                        &mut packet_batches,
+                        &tx_offset_recycler,
+                        &out_recycler,
+                        false,
+                        num_packets,
+                    );
+                    let verified = packet_batches
+                        .iter()
+                        .all(|batch| batch.iter().all(|p| !p.meta.discard()));
+                    verify_time.stop();
+                    (verified, verify_time.as_us())
+                })
+                .unwrap();
             Ok(EntrySigVerificationState {
                 verification_status: EntryVerificationStatus::Pending,
                 entries: Some(entries),
@@ -754,7 +741,7 @@ impl EntrySlice for [Entry] {
             return self.verify_cpu(start_hash);
         }
         let api = api.unwrap();
-        inc_new_counter_info!("entry_verify-num_entries", self.len() as usize);
+        inc_new_counter_info!("entry_verify-num_entries", self.len());
 
         let genesis = [Entry {
             num_hashes: 0,
@@ -786,25 +773,28 @@ impl EntrySlice for [Entry] {
         let hashes = Arc::new(Mutex::new(hashes_pinned));
         let hashes_clone = hashes.clone();
 
-        let gpu_verify_thread = thread::spawn(move || {
-            let mut hashes = hashes_clone.lock().unwrap();
-            let gpu_wait = Instant::now();
-            let res;
-            unsafe {
-                res = (api.poh_verify_many)(
-                    hashes.as_mut_ptr() as *mut u8,
-                    num_hashes_vec.as_ptr(),
-                    length,
-                    1,
+        let gpu_verify_thread = thread::Builder::new()
+            .name("solGpuPohVerify".into())
+            .spawn(move || {
+                let mut hashes = hashes_clone.lock().unwrap();
+                let gpu_wait = Instant::now();
+                let res;
+                unsafe {
+                    res = (api.poh_verify_many)(
+                        hashes.as_mut_ptr() as *mut u8,
+                        num_hashes_vec.as_ptr(),
+                        length,
+                        1,
+                    );
+                }
+                assert!(res == 0, "GPU PoH verify many failed");
+                inc_new_counter_info!(
+                    "entry_verify-gpu_thread",
+                    timing::duration_as_us(&gpu_wait.elapsed()) as usize
                 );
-            }
-            assert!(res == 0, "GPU PoH verify many failed");
-            inc_new_counter_info!(
-                "entry_verify-gpu_thread",
-                timing::duration_as_us(&gpu_wait.elapsed()) as usize
-            );
-            timing::duration_as_us(&gpu_wait.elapsed())
-        });
+                timing::duration_as_us(&gpu_wait.elapsed())
+            })
+            .unwrap();
 
         let verifications = PAR_THREAD_POOL.install(|| {
             self.into_par_iter()

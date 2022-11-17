@@ -232,7 +232,7 @@ impl UiTokenAmount {
     pub fn real_number_string(&self) -> String {
         real_number_string(
             u64::from_str(&self.amount).unwrap_or_default(),
-            self.decimals as u8,
+            self.decimals,
         )
     }
 
@@ -242,7 +242,7 @@ impl UiTokenAmount {
         } else {
             real_number_string_trimmed(
                 u64::from_str(&self.amount).unwrap_or_default(),
-                self.decimals as u8,
+                self.decimals,
             )
         }
     }
@@ -552,8 +552,10 @@ mod test {
         account_state.pack_base();
         account_state.init_account_type().unwrap();
 
-        account_state.init_extension::<ImmutableOwner>().unwrap();
-        let mut memo_transfer = account_state.init_extension::<MemoTransfer>().unwrap();
+        account_state
+            .init_extension::<ImmutableOwner>(true)
+            .unwrap();
+        let mut memo_transfer = account_state.init_extension::<MemoTransfer>(true).unwrap();
         memo_transfer.require_incoming_transfer_memos = true.into();
 
         assert!(parse_token(&account_data, None).is_err());
@@ -620,7 +622,9 @@ mod test {
         let mut mint_state =
             StateWithExtensionsMut::<Mint>::unpack_uninitialized(&mut mint_data).unwrap();
 
-        let mut mint_close_authority = mint_state.init_extension::<MintCloseAuthority>().unwrap();
+        let mut mint_close_authority = mint_state
+            .init_extension::<MintCloseAuthority>(true)
+            .unwrap();
         mint_close_authority.close_authority =
             OptionalNonZeroPubkey::try_from(Some(owner_pubkey)).unwrap();
 

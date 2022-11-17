@@ -9,13 +9,14 @@ use {
             normalize_to_url_if_moniker,
         },
     },
-    solana_client::rpc_client::RpcClient,
     solana_core::tower_storage::FileTowerStorage,
     solana_faucet::faucet::{run_local_faucet_with_port, FAUCET_PORT},
     solana_rpc::{
         rpc::{JsonRpcConfig, RpcBigtableConfig},
         rpc_pubsub_service::PubSubConfig,
     },
+    solana_rpc_client::rpc_client::RpcClient,
+    solana_runtime::accounts_index::{AccountIndex, AccountSecondaryIndexes},
     solana_sdk::{
         account::AccountSharedData,
         clock::Slot,
@@ -141,6 +142,15 @@ fn main() {
                 .help("Log mode: stream the validator log"),
         )
         .arg(
+            Arg::with_name("account_indexes")
+                .long("account-index")
+                .takes_value(true)
+                .multiple(true)
+                .possible_values(&["program-id", "spl-token-owner", "spl-token-mint"])
+                .value_name("INDEX")
+                .help("Enable an accounts index, indexed by the selected account field"),
+        )
+        .arg(
             Arg::with_name("faucet_port")
                 .long("faucet-port")
                 .value_name("PORT")
@@ -176,6 +186,15 @@ fn main() {
                 .help("Name of BigTable instance to target"),
         )
         .arg(
+            Arg::with_name("rpc_bigtable_app_profile_id")
+                .long("rpc-bigtable-app-profile-id")
+                .value_name("APP_PROFILE_ID")
+                .takes_value(true)
+                .hidden(true)
+                .default_value(solana_storage_bigtable::DEFAULT_APP_PROFILE_ID)
+                .help("Application profile id to use in Bigtable requests")
+        )
+        .arg(
             Arg::with_name("rpc_pubsub_enable_vote_subscription")
                 .long("rpc-pubsub-enable-vote-subscription")
                 .takes_value(false)
@@ -184,26 +203,52 @@ fn main() {
         .arg(
             Arg::with_name("bpf_program")
                 .long("bpf-program")
-                .value_name("ADDRESS_OR_PATH BPF_PROGRAM.SO")
+                .value_names(&["ADDRESS_OR_KEYPAIR", "SBF_PROGRAM.SO"])
                 .takes_value(true)
                 .number_of_values(2)
                 .multiple(true)
                 .help(
-                    "Add a BPF program to the genesis configuration. \
+                    "Add a SBF program to the genesis configuration. \
                        If the ledger already exists then this parameter is silently ignored. \
-                       First argument can be a public key or path to file that can be parsed as a keypair",
+                       First argument can be a pubkey string or path to a keypair",
                 ),
         )
         .arg(
             Arg::with_name("account")
                 .long("account")
-                .value_name("ADDRESS FILENAME.JSON")
+                .value_names(&["ADDRESS", "DUMP.JSON"])
                 .takes_value(true)
                 .number_of_values(2)
+                .allow_hyphen_values(true)
                 .multiple(true)
                 .help(
                     "Load an account from the provided JSON file (see `solana account --help` on how to dump \
                         an account to file). Files are searched for relatively to CWD and tests/fixtures. \
+                        If ADDRESS is omitted via the `-` placeholder, the one in the file will be used. \
+                        If the ledger already exists then this parameter is silently ignored",
+                ),
+        )
+        .arg(
+            Arg::with_name("account_dir")
+                .long("account-dir")
+                .value_name("DIRECTORY")
+                .validator(|value| {
+                    value
+                        .parse::<PathBuf>()
+                        .map_err(|err| format!("error parsing '{}': {}", value, err))
+                        .and_then(|path| {
+                            if path.exists() && path.is_dir() {
+                                Ok(())
+                            } else {
+                                Err(format!("path does not exist or is not a directory: {}", value))
+                            }
+                        })
+                })
+                .takes_value(true)
+                .multiple(true)
+                .help(
+                    "Load all the accounts from the JSON files found in the specified DIRECTORY \
+                        (see also the `--account` flag). \
                         If the ledger already exists then this parameter is silently ignored",
                 ),
         )
@@ -211,7 +256,7 @@ fn main() {
             Arg::with_name("no_bpf_jit")
                 .long("no-bpf-jit")
                 .takes_value(false)
-                .help("Disable the just-in-time compiler and instead use the interpreter for BPF. Windows always disables JIT."),
+                .help("Disable the just-in-time compiler and instead use the interpreter for SBF. Windows always disables JIT."),
         )
         .arg(
             Arg::with_name("ticks_per_slot")
@@ -377,6 +422,22 @@ fn main() {
                 .takes_value(true)
                 .help("Override the runtime's compute unit limit per transaction")
         )
+        .arg(
+            Arg::with_name("log_messages_bytes_limit")
+                .long("log-messages-bytes-limit")
+                .value_name("BYTES")
+                .validator(is_parsable::<usize>)
+                .takes_value(true)
+                .help("Maximum number of bytes written to the program log before truncation")
+        )
+        .arg(
+            Arg::with_name("transaction_account_lock_limit")
+                .long("transaction-account-lock-limit")
+                .value_name("NUM_ACCOUNTS")
+                .validator(is_parsable::<u64>)
+                .takes_value(true)
+                .help("Override the runtime's account lock limit per transaction")
+        )
         .get_matches();
 
     let output = if matches.is_present("quiet") {
@@ -389,6 +450,22 @@ fn main() {
 
     let ledger_path = value_t_or_exit!(matches, "ledger_path", PathBuf);
     let reset_ledger = matches.is_present("reset");
+
+    let indexes: HashSet<AccountIndex> = matches
+        .values_of("account_indexes")
+        .unwrap_or_default()
+        .map(|value| match value {
+            "program-id" => AccountIndex::ProgramId,
+            "spl-token-mint" => AccountIndex::SplTokenMint,
+            "spl-token-owner" => AccountIndex::SplTokenOwner,
+            _ => unreachable!(),
+        })
+        .collect();
+
+    let account_indexes = AccountSecondaryIndexes {
+        keys: None,
+        indexes,
+    };
 
     if !ledger_path.exists() {
         fs::create_dir(&ledger_path).unwrap_or_else(|err| {
@@ -532,10 +609,14 @@ fn main() {
         for address_filename in values.chunks(2) {
             match address_filename {
                 [address, filename] => {
-                    let address = address.parse::<Pubkey>().unwrap_or_else(|err| {
-                        println!("Error: invalid address {}: {}", address, err);
-                        exit(1);
-                    });
+                    let address = if *address == "-" {
+                        None
+                    } else {
+                        Some(address.parse::<Pubkey>().unwrap_or_else(|err| {
+                            println!("Error: invalid address {}: {}", address, err);
+                            exit(1);
+                        }))
+                    };
 
                     accounts_to_load.push(AccountInfo { address, filename });
                 }
@@ -543,6 +624,11 @@ fn main() {
             }
         }
     }
+
+    let accounts_from_dirs: HashSet<_> = matches
+        .values_of("account_dir")
+        .unwrap_or_default()
+        .collect();
 
     let accounts_to_clone: HashSet<_> = pubkeys_of(&matches, "clone_account")
         .map(|v| v.into_iter().collect())
@@ -634,6 +720,9 @@ fn main() {
     genesis.max_ledger_shreds = value_of(&matches, "limit_ledger_size");
     genesis.max_genesis_archive_unpacked_size = Some(u64::MAX);
     genesis.accounts_db_caching_enabled = !matches.is_present("no_accounts_db_caching");
+    genesis.log_messages_bytes_limit = value_t!(matches, "log_messages_bytes_limit", usize).ok();
+    genesis.transaction_account_lock_limit =
+        value_t!(matches, "transaction_account_lock_limit", usize).ok();
 
     let tower_storage = Arc::new(FileTowerStorage::new(ledger_path.clone()));
 
@@ -649,6 +738,7 @@ fn main() {
             start_time: std::time::SystemTime::now(),
             validator_exit: genesis.validator_exit.clone(),
             authorized_voter_keypairs: genesis.authorized_voter_keypairs.clone(),
+            staked_nodes_overrides: genesis.staked_nodes_overrides.clone(),
             post_init: admin_service_post_init.clone(),
             tower_storage: tower_storage.clone(),
         },
@@ -670,6 +760,11 @@ fn main() {
         Some(RpcBigtableConfig {
             enable_bigtable_ledger_upload: false,
             bigtable_instance_name: value_t_or_exit!(matches, "rpc_bigtable_instance", String),
+            bigtable_app_profile_id: value_t_or_exit!(
+                matches,
+                "rpc_bigtable_app_profile_id",
+                String
+            ),
             timeout: None,
         })
     } else {
@@ -683,13 +778,6 @@ fn main() {
             faucet_pubkey,
             AccountSharedData::new(faucet_lamports, 0, &system_program::id()),
         )
-        .rpc_config(JsonRpcConfig {
-            enable_rpc_transaction_history: true,
-            enable_extended_tx_metadata_storage: true,
-            rpc_bigtable_config,
-            faucet_addr,
-            ..JsonRpcConfig::default_for_test()
-        })
         .pubsub_config(PubSubConfig {
             enable_vote_subscription,
             ..PubSubConfig::default()
@@ -698,26 +786,50 @@ fn main() {
         .rpc_port(rpc_port)
         .add_programs_with_path(&programs_to_load)
         .add_accounts_from_json_files(&accounts_to_load)
+        .unwrap_or_else(|e| {
+            println!("Error: add_accounts_from_json_files failed: {}", e);
+            exit(1);
+        })
+        .add_accounts_from_directories(&accounts_from_dirs)
+        .unwrap_or_else(|e| {
+            println!("Error: add_accounts_from_directories failed: {}", e);
+            exit(1);
+        })
         .deactivate_features(&features_to_deactivate);
 
+    genesis.rpc_config(JsonRpcConfig {
+        enable_rpc_transaction_history: true,
+        enable_extended_tx_metadata_storage: true,
+        rpc_bigtable_config,
+        faucet_addr,
+        account_indexes,
+        ..JsonRpcConfig::default_for_test()
+    });
+
     if !accounts_to_clone.is_empty() {
-        genesis.clone_accounts(
+        if let Err(e) = genesis.clone_accounts(
             accounts_to_clone,
             cluster_rpc_client
                 .as_ref()
                 .expect("bug: --url argument missing?"),
             false,
-        );
+        ) {
+            println!("Error: clone_accounts failed: {}", e);
+            exit(1);
+        }
     }
 
     if !accounts_to_maybe_clone.is_empty() {
-        genesis.clone_accounts(
+        if let Err(e) = genesis.clone_accounts(
             accounts_to_maybe_clone,
             cluster_rpc_client
                 .as_ref()
                 .expect("bug: --url argument missing?"),
             true,
-        );
+        ) {
+            println!("Error: clone_accounts failed: {}", e);
+            exit(1);
+        }
     }
 
     if let Some(warp_slot) = warp_slot {
@@ -789,12 +901,12 @@ fn main() {
 }
 
 fn remove_directory_contents(ledger_path: &Path) -> Result<(), io::Error> {
-    for entry in fs::read_dir(&ledger_path)? {
+    for entry in fs::read_dir(ledger_path)? {
         let entry = entry?;
         if entry.metadata()?.is_dir() {
-            fs::remove_dir_all(&entry.path())?
+            fs::remove_dir_all(entry.path())?
         } else {
-            fs::remove_file(&entry.path())?
+            fs::remove_file(entry.path())?
         }
     }
     Ok(())

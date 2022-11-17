@@ -402,8 +402,8 @@ impl TransferWithFeeProof {
             RangeProof::new(
                 vec![
                     source_new_balance,
-                    transfer_amount_lo as u64,
-                    transfer_amount_hi as u64,
+                    transfer_amount_lo,
+                    transfer_amount_hi,
                     delta_fee,
                     MAX_FEE_BASIS_POINTS - delta_fee,
                 ],
@@ -425,15 +425,15 @@ impl TransferWithFeeProof {
             )
         } else {
             let transfer_amount_lo_negated =
-                ((1 << TRANSFER_AMOUNT_LO_NEGATED_BITS) - 1) - transfer_amount_lo as u64;
+                ((1 << TRANSFER_AMOUNT_LO_NEGATED_BITS) - 1) - transfer_amount_lo;
             let opening_lo_negated = &PedersenOpening::default() - opening_lo;
 
             RangeProof::new(
                 vec![
                     source_new_balance,
-                    transfer_amount_lo as u64,
+                    transfer_amount_lo,
                     transfer_amount_lo_negated,
-                    transfer_amount_hi as u64,
+                    transfer_amount_hi,
                     delta_fee,
                     MAX_FEE_BASIS_POINTS - delta_fee,
                 ],
@@ -697,18 +697,20 @@ impl FeeParameters {
 #[cfg(not(target_os = "solana"))]
 fn calculate_fee(transfer_amount: u64, fee_rate_basis_points: u16) -> Option<(u64, u64)> {
     let numerator = (transfer_amount as u128).checked_mul(fee_rate_basis_points as u128)?;
-    let mut fee = numerator.checked_div(ONE_IN_BASIS_POINTS)?;
-    let mut delta_fee = 0_u128;
 
-    let remainder = numerator.checked_rem(ONE_IN_BASIS_POINTS)?;
-    if remainder > 0 {
-        fee = fee.checked_add(1)?;
+    // Warning: Division may involve CPU opcodes that have variable execution times. This
+    // non-constant-time execution of the fee calculation can theoretically reveal information
+    // about the transfer amount. For transfers that invole extremely sensitive data, additional
+    // care should be put into how the fees are calculated.
+    let fee = numerator
+        .checked_add(ONE_IN_BASIS_POINTS)?
+        .checked_sub(1)?
+        .checked_div(ONE_IN_BASIS_POINTS)?;
 
-        let scaled_fee = fee.checked_mul(ONE_IN_BASIS_POINTS)?;
-        delta_fee = scaled_fee.checked_sub(numerator)?;
-    }
+    let delta_fee = fee
+        .checked_mul(ONE_IN_BASIS_POINTS)?
+        .checked_sub(numerator)?;
 
-    let fee = u64::try_from(fee).ok()?;
     Some((fee as u64, delta_fee as u64))
 }
 

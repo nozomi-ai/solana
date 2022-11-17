@@ -1,7 +1,5 @@
 use {
-    crate::blockstore_db::{
-        columns, BlockstoreCompressionType, LedgerColumnOptions, ShredStorageType,
-    },
+    crate::blockstore_options::LedgerColumnOptions,
     rocksdb::{
         perf::{set_perf_stats, PerfMetric, PerfStatsLevel},
         PerfContext,
@@ -11,61 +9,128 @@ use {
     std::{
         cell::RefCell,
         fmt::Debug,
-        sync::{
-            atomic::{AtomicU64, AtomicUsize, Ordering},
-            Arc,
-        },
+        sync::atomic::{AtomicU64, AtomicUsize, Ordering},
         time::{Duration, Instant},
     },
 };
 
-#[macro_export]
-macro_rules! rocksdb_metric_header {
-    ($metric_name:literal, $cf_name:literal, $column_options:expr) => {
-        match $column_options.shred_storage_type {
-            ShredStorageType::RocksLevel =>
-                rocksdb_metric_header!(@compression_type $metric_name, $cf_name, $column_options, "rocks_level"),
-            ShredStorageType::RocksFifo(_) =>
-                rocksdb_metric_header!(@compression_type $metric_name, $cf_name, $column_options, "rocks_fifo"),
-        }
-    };
+#[derive(Default)]
+pub struct BlockstoreInsertionMetrics {
+    pub insert_lock_elapsed_us: u64,
+    pub insert_shreds_elapsed_us: u64,
+    pub shred_recovery_elapsed_us: u64,
+    pub chaining_elapsed_us: u64,
+    pub commit_working_sets_elapsed_us: u64,
+    pub write_batch_elapsed_us: u64,
+    pub total_elapsed_us: u64,
+    pub index_meta_time_us: u64,
+    pub num_shreds: usize,
+    pub num_inserted: u64,
+    pub num_repair: u64,
+    pub num_recovered: usize,
+    pub num_recovered_blockstore_error: usize,
+    pub num_recovered_inserted: usize,
+    pub num_recovered_failed_sig: usize,
+    pub num_recovered_failed_invalid: usize,
+    pub num_recovered_exists: usize,
+    pub num_data_shreds_exists: usize,
+    pub num_data_shreds_invalid: usize,
+    pub num_data_shreds_blockstore_error: usize,
+    pub num_coding_shreds_exists: usize,
+    pub num_coding_shreds_invalid: usize,
+    pub num_coding_shreds_invalid_erasure_config: usize,
+    pub num_coding_shreds_inserted: usize,
+}
 
-    (@compression_type $metric_name:literal, $cf_name:literal, $column_options:expr, $storage_type:literal) => {
-        match $column_options.compression_type {
-            BlockstoreCompressionType::None => rocksdb_metric_header!(@all_fields
-                $metric_name,
-                $cf_name,
-                $storage_type,
-                "None"
+impl BlockstoreInsertionMetrics {
+    pub fn report_metrics(&self, metric_name: &'static str) {
+        datapoint_info!(
+            metric_name,
+            ("num_shreds", self.num_shreds as i64, i64),
+            ("total_elapsed_us", self.total_elapsed_us as i64, i64),
+            (
+                "insert_lock_elapsed_us",
+                self.insert_lock_elapsed_us as i64,
+                i64
             ),
-            BlockstoreCompressionType::Snappy => rocksdb_metric_header!(@all_fields
-                $metric_name,
-                $cf_name,
-                $storage_type,
-                "Snappy"
+            (
+                "insert_shreds_elapsed_us",
+                self.insert_shreds_elapsed_us as i64,
+                i64
             ),
-            BlockstoreCompressionType::Lz4 => rocksdb_metric_header!(@all_fields
-                $metric_name,
-                $cf_name,
-                $storage_type,
-                "Lz4"
+            (
+                "shred_recovery_elapsed_us",
+                self.shred_recovery_elapsed_us as i64,
+                i64
             ),
-            BlockstoreCompressionType::Zlib => rocksdb_metric_header!(@all_fields
-                $metric_name,
-                $cf_name,
-                $storage_type,
-                "Zlib"
+            ("chaining_elapsed_us", self.chaining_elapsed_us as i64, i64),
+            (
+                "commit_working_sets_elapsed_us",
+                self.commit_working_sets_elapsed_us as i64,
+                i64
             ),
-        }
-    };
-
-    (@all_fields $metric_name:literal, $cf_name:literal, $storage_type:literal, $compression_type:literal) => {
-        concat!($metric_name,
-            ",cf_name=", $cf_name,
-            ",storage=", $storage_type,
-            ",compression=", $compression_type,
-        )
-    };
+            (
+                "write_batch_elapsed_us",
+                self.write_batch_elapsed_us as i64,
+                i64
+            ),
+            ("num_inserted", self.num_inserted as i64, i64),
+            ("num_repair", self.num_repair as i64, i64),
+            ("num_recovered", self.num_recovered as i64, i64),
+            (
+                "num_recovered_inserted",
+                self.num_recovered_inserted as i64,
+                i64
+            ),
+            (
+                "num_recovered_failed_sig",
+                self.num_recovered_failed_sig as i64,
+                i64
+            ),
+            (
+                "num_recovered_failed_invalid",
+                self.num_recovered_failed_invalid as i64,
+                i64
+            ),
+            (
+                "num_recovered_exists",
+                self.num_recovered_exists as i64,
+                i64
+            ),
+            (
+                "num_recovered_blockstore_error",
+                self.num_recovered_blockstore_error,
+                i64
+            ),
+            ("num_data_shreds_exists", self.num_data_shreds_exists, i64),
+            ("num_data_shreds_invalid", self.num_data_shreds_invalid, i64),
+            (
+                "num_data_shreds_blockstore_error",
+                self.num_data_shreds_blockstore_error,
+                i64
+            ),
+            (
+                "num_coding_shreds_exists",
+                self.num_coding_shreds_exists,
+                i64
+            ),
+            (
+                "num_coding_shreds_invalid",
+                self.num_coding_shreds_invalid,
+                i64
+            ),
+            (
+                "num_coding_shreds_invalid_erasure_config",
+                self.num_coding_shreds_invalid_erasure_config,
+                i64
+            ),
+            (
+                "num_coding_shreds_inserted",
+                self.num_coding_shreds_inserted,
+                i64
+            ),
+        );
+    }
 }
 
 /// A metrics struct that exposes RocksDB's column family properties.
@@ -169,68 +234,72 @@ impl BlockstoreRocksDbColumnFamilyMetrics {
     /// `metric_name_and_cf_tag` with the following format.
     ///
     /// For example, "blockstore_rocksdb_cfs,cf_name=shred_data".
-    pub fn report_metrics(&self, metric_name_and_cf_tag: &'static str) {
+    pub fn report_metrics(&self, cf_name: &'static str, column_options: &LedgerColumnOptions) {
         datapoint_info!(
-            metric_name_and_cf_tag,
+            "blockstore_rocksdb_cfs",
+            // tags that support group-by operations
+            "cf_name" => cf_name,
+            "storage" => column_options.get_storage_type_string(),
+            "compression" => column_options.get_compression_type_string(),
             // Size related
             (
                 "total_sst_files_size",
-                self.total_sst_files_size as i64,
+                self.total_sst_files_size,
                 i64
             ),
-            ("size_all_mem_tables", self.size_all_mem_tables as i64, i64),
+            ("size_all_mem_tables", self.size_all_mem_tables, i64),
             // Snapshot related
-            ("num_snapshots", self.num_snapshots as i64, i64),
+            ("num_snapshots", self.num_snapshots, i64),
             (
                 "oldest_snapshot_time",
-                self.oldest_snapshot_time as i64,
+                self.oldest_snapshot_time,
                 i64
             ),
             // Write related
             (
                 "actual_delayed_write_rate",
-                self.actual_delayed_write_rate as i64,
+                self.actual_delayed_write_rate,
                 i64
             ),
-            ("is_write_stopped", self.is_write_stopped as i64, i64),
+            ("is_write_stopped", self.is_write_stopped, i64),
             // Memory / block cache related
             (
                 "block_cache_capacity",
-                self.block_cache_capacity as i64,
+                self.block_cache_capacity,
                 i64
             ),
-            ("block_cache_usage", self.block_cache_usage as i64, i64),
+            ("block_cache_usage", self.block_cache_usage, i64),
             (
                 "block_cache_pinned_usage",
-                self.block_cache_pinned_usage as i64,
+                self.block_cache_pinned_usage,
                 i64
             ),
             (
                 "estimate_table_readers_mem",
-                self.estimate_table_readers_mem as i64,
+                self.estimate_table_readers_mem,
                 i64
             ),
             // Flush and compaction
             (
                 "mem_table_flush_pending",
-                self.mem_table_flush_pending as i64,
+                self.mem_table_flush_pending,
                 i64
             ),
-            ("compaction_pending", self.compaction_pending as i64, i64),
+            ("compaction_pending", self.compaction_pending, i64),
             (
                 "num_running_compactions",
-                self.num_running_compactions as i64,
+                self.num_running_compactions,
                 i64
             ),
-            ("num_running_flushes", self.num_running_flushes as i64, i64),
+            ("num_running_flushes", self.num_running_flushes, i64),
             // FIFO Compaction related
             (
                 "estimate_oldest_key_time",
-                self.estimate_oldest_key_time as i64,
+                self.estimate_oldest_key_time,
                 i64
             ),
             // Misc
-            ("background_errors", self.background_errors as i64, i64),
+            ("background_errors", self.background_errors, i64),
         );
     }
 }
@@ -240,6 +309,10 @@ thread_local! {static PER_THREAD_ROCKS_PERF_CONTEXT: RefCell<PerfContext> = RefC
 
 // The minimum time duration between two RocksDB perf samples of the same operation.
 const PERF_SAMPLING_MIN_DURATION: Duration = Duration::from_secs(1);
+pub(crate) const PERF_METRIC_OP_NAME_GET: &str = "get";
+pub(crate) const PERF_METRIC_OP_NAME_MULTI_GET: &str = "multi_get";
+pub(crate) const PERF_METRIC_OP_NAME_PUT: &str = "put";
+pub(crate) const PERF_METRIC_OP_NAME_WRITE_BATCH: &str = "write_batch";
 
 /// The function enables RocksDB PerfContext once for every `sample_interval`.
 ///
@@ -264,12 +337,22 @@ pub(crate) fn maybe_enable_rocksdb_perf(
 
 /// Reports the collected PerfContext and disables the PerfContext after
 /// reporting.
-pub(crate) fn report_rocksdb_read_perf(total_op_duration: &Duration, metric_header: &'static str) {
+pub(crate) fn report_rocksdb_read_perf(
+    cf_name: &'static str,
+    op_name: &'static str,
+    total_op_duration: &Duration,
+    column_options: &LedgerColumnOptions,
+) {
     PER_THREAD_ROCKS_PERF_CONTEXT.with(|perf_context_cell| {
         set_perf_stats(PerfStatsLevel::Disable);
         let perf_context = perf_context_cell.borrow();
         datapoint_info!(
-            metric_header,
+            "blockstore_rocksdb_read_perf",
+            // tags that support group-by operations
+            "op" => op_name,
+            "cf_name" => cf_name,
+            "storage" => column_options.get_storage_type_string(),
+            "compression" => column_options.get_compression_type_string(),
             // total nanos spent on the entire operation.
             ("total_op_nanos", total_op_duration.as_nanos() as i64, i64),
             (
@@ -430,12 +513,22 @@ pub(crate) fn report_rocksdb_read_perf(total_op_duration: &Duration, metric_head
 }
 /// Reports the collected PerfContext and disables the PerfContext after
 /// reporting.
-pub(crate) fn report_rocksdb_write_perf(total_op_duration: &Duration, metric_header: &'static str) {
+pub(crate) fn report_rocksdb_write_perf(
+    cf_name: &'static str,
+    op_name: &'static str,
+    total_op_duration: &Duration,
+    column_options: &LedgerColumnOptions,
+) {
     PER_THREAD_ROCKS_PERF_CONTEXT.with(|perf_context_cell| {
         set_perf_stats(PerfStatsLevel::Disable);
         let perf_context = perf_context_cell.borrow();
         datapoint_info!(
-            metric_header,
+            "blockstore_rocksdb_write_perf",
+            // tags that support group-by operations
+            "op" => op_name,
+            "cf_name" => cf_name,
+            "storage" => column_options.get_storage_type_string(),
+            "compression" => column_options.get_compression_type_string(),
             // total nanos spent on the entire operation.
             ("total_op_nanos", total_op_duration.as_nanos() as i64, i64),
             // total nanos spent on writing to WAL
@@ -536,736 +629,5 @@ impl PerfSamplingStatus {
                 Ordering::Relaxed,
             )
             .is_ok()
-    }
-}
-
-pub trait ColumnMetrics {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    );
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str;
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str;
-    fn rocksdb_delete_perf_metric_header(column_options: &Arc<LedgerColumnOptions>)
-        -> &'static str;
-}
-
-impl ColumnMetrics for columns::TransactionStatus {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "transaction_status",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "transaction_status",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "transaction_status",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "transaction_status",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::AddressSignatures {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "address_signatures",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "address_signatures",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "address_signatures",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "address_signatures",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::TransactionMemos {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "transaction_memos",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "transaction_memos",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "transaction_memos",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "transaction_memos",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::TransactionStatusIndex {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "transaction_status_index",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "transaction_status_index",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "transaction_status_index",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "transaction_status_index",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::Rewards {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "rewards",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "rewards",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "rewards",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "rewards",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::Blocktime {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "blocktime",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "blocktime",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "blocktime",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "blocktime",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::PerfSamples {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "perf_samples",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "perf_samples",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "perf_samples",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "perf_samples",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::BlockHeight {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "block_height",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "block_height",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "block_height",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "block_height",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::ProgramCosts {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "program_costs",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "program_costs",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "program_costs",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "program_costs",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::ShredCode {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "shred_code",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "shred_code",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "shred_code",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "shred_code",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::ShredData {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "shred_data",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "shred_data",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "shred_data",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "shred_data",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::Index {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "index",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "index",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "index",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "index",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::DeadSlots {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "dead_slots",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "dead_slots",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "dead_slots",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "dead_slots",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::DuplicateSlots {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "duplicate_slots",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "duplicate_slots",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "duplicate_slots",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "duplicate_slots",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::Orphans {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "orphans",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "orphans",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "orphans",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "orphans",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::BankHash {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "bank_hash",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "bank_hash",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "bank_hash",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "bank_hash",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::OptimisticSlots {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "optimistic_slots",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "optimistic_slots",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "optimistic_slots",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "optimistic_slots",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::Root {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "root",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "root",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "root",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "root",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::SlotMeta {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "slot_meta",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "slot_meta",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "slot_meta",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "slot_meta",
-            column_options
-        )
-    }
-}
-
-impl ColumnMetrics for columns::ErasureMeta {
-    fn report_cf_metrics(
-        cf_metrics: BlockstoreRocksDbColumnFamilyMetrics,
-        column_options: &Arc<LedgerColumnOptions>,
-    ) {
-        cf_metrics.report_metrics(rocksdb_metric_header!(
-            "blockstore_rocksdb_cfs",
-            "erasure_meta",
-            column_options
-        ));
-    }
-    fn rocksdb_get_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_read_perf,op=get",
-            "erasure_meta",
-            column_options
-        )
-    }
-    fn rocksdb_put_perf_metric_header(column_options: &Arc<LedgerColumnOptions>) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=put",
-            "erasure_meta",
-            column_options
-        )
-    }
-    fn rocksdb_delete_perf_metric_header(
-        column_options: &Arc<LedgerColumnOptions>,
-    ) -> &'static str {
-        rocksdb_metric_header!(
-            "blockstore_rocksdb_write_perf,op=delete",
-            "erasure_meta",
-            column_options
-        )
     }
 }

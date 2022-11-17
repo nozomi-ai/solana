@@ -21,9 +21,10 @@ use {
 
 fn producer(addr: &SocketAddr, exit: Arc<AtomicBool>) -> JoinHandle<()> {
     let send = UdpSocket::bind("0.0.0.0:0").unwrap();
-    let mut packet_batch = PacketBatch::default();
-    packet_batch.packets.resize(10, Packet::default());
-    for w in packet_batch.packets.iter_mut() {
+    let batch_size = 10;
+    let mut packet_batch = PacketBatch::with_capacity(batch_size);
+    packet_batch.resize(batch_size, Packet::default());
+    for w in packet_batch.iter_mut() {
         w.meta.size = PACKET_DATA_SIZE;
         w.meta.set_socket_addr(addr);
     }
@@ -33,10 +34,11 @@ fn producer(addr: &SocketAddr, exit: Arc<AtomicBool>) -> JoinHandle<()> {
             return;
         }
         let mut num = 0;
-        for p in &packet_batch.packets {
+        for p in packet_batch.iter() {
             let a = p.meta.socket_addr();
             assert!(p.meta.size <= PACKET_DATA_SIZE);
-            send.send_to(&p.data[..p.meta.size], &a).unwrap();
+            let data = p.data(..).unwrap_or_default();
+            send.send_to(data, a).unwrap();
             num += 1;
         }
         assert_eq!(num, 10);
@@ -50,7 +52,7 @@ fn sink(exit: Arc<AtomicBool>, rvs: Arc<AtomicUsize>, r: PacketBatchReceiver) ->
         }
         let timer = Duration::new(1, 0);
         if let Ok(packet_batch) = r.recv_timeout(timer) {
-            rvs.fetch_add(packet_batch.packets.len(), Ordering::Relaxed);
+            rvs.fetch_add(packet_batch.len(), Ordering::Relaxed);
         }
     })
 }

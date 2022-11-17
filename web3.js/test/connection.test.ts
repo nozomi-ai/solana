@@ -18,8 +18,10 @@ import {
   sendAndConfirmTransaction,
   Keypair,
   Message,
+  AddressLookupTableProgram,
+  SYSTEM_INSTRUCTION_LAYOUTS,
 } from '../src';
-import invariant from '../src/util/assert';
+import invariant from '../src/utils/assert';
 import {MOCK_PORT, url} from './url';
 import {
   AccountInfo,
@@ -35,7 +37,7 @@ import {
   SignatureResult,
   SlotInfo,
 } from '../src/connection';
-import {sleep} from '../src/util/sleep';
+import {sleep} from '../src/utils/sleep';
 import {
   helpers,
   mockErrorMessage,
@@ -49,16 +51,20 @@ import {
   restoreRpcWebSocket,
   mockRpcMessage,
 } from './mocks/rpc-websockets';
-import {TransactionInstruction, TransactionSignature} from '../src/transaction';
+import {
+  TransactionInstruction,
+  TransactionSignature,
+  TransactionExpiredBlockheightExceededError,
+  TransactionExpiredTimeoutError,
+} from '../src/transaction';
 import type {
   SignatureStatus,
   TransactionError,
   KeyedAccountInfo,
 } from '../src/connection';
-import {
-  TransactionExpiredBlockheightExceededError,
-  TransactionExpiredTimeoutError,
-} from '../src/util/tx-expiry-custom-errors';
+import {VersionedTransaction} from '../src/transaction/versioned';
+import {MessageV0} from '../src/message/v0';
+import {encodeData} from '../src/instruction';
 
 use(chaiAsPromised);
 
@@ -224,6 +230,7 @@ describe('Connection', function () {
         data: ['', 'base64'],
         executable: false,
         rentEpoch: 0,
+        space: 0,
       },
       {
         owner: '11111111111111111111111111111111',
@@ -231,6 +238,7 @@ describe('Connection', function () {
         data: ['', 'base64'],
         executable: false,
         rentEpoch: 0,
+        space: 0,
       },
     ];
 
@@ -256,6 +264,7 @@ describe('Connection', function () {
         data: Buffer.from([]),
         executable: false,
         rentEpoch: 0,
+        space: 0,
       },
       {
         owner: new PublicKey('11111111111111111111111111111111'),
@@ -263,6 +272,7 @@ describe('Connection', function () {
         data: Buffer.from([]),
         executable: false,
         rentEpoch: 0,
+        space: 0,
       },
     ];
 
@@ -2197,6 +2207,141 @@ describe('Connection', function () {
     expect(nullResponse).to.be.null;
   });
 
+  it('get transactions', async function () {
+    await mockRpcResponse({
+      method: 'getSlot',
+      params: [],
+      value: 1,
+    });
+
+    while ((await connection.getSlot()) <= 0) {
+      continue;
+    }
+
+    await mockRpcResponse({
+      method: 'getBlock',
+      params: [1],
+      value: {
+        blockHeight: 0,
+        blockTime: 1614281964,
+        blockhash: '57zQNBZBEiHsCZFqsaY6h176ioXy5MsSLmcvHkEyaLGy',
+        previousBlockhash: 'H5nJ91eGag3B5ZSRHZ7zG5ZwXJ6ywCt2hyR8xCsV7xMo',
+        parentSlot: 0,
+        transactions: [
+          {
+            meta: {
+              fee: 10000,
+              postBalances: [499260347380, 15298080, 1, 1, 1],
+              preBalances: [499260357380, 15298080, 1, 1, 1],
+              status: {Ok: null},
+              err: null,
+            },
+            transaction: {
+              message: {
+                accountKeys: [
+                  'va12u4o9DipLEB2z4fuoHszroq1U9NcAB9aooFDPJSf',
+                  '57zQNBZBEiHsCZFqsaY6h176ioXy5MsSLmcvHkEyaLGy',
+                  'SysvarS1otHashes111111111111111111111111111',
+                  'SysvarC1ock11111111111111111111111111111111',
+                  'Vote111111111111111111111111111111111111111',
+                ],
+                header: {
+                  numReadonlySignedAccounts: 0,
+                  numReadonlyUnsignedAccounts: 3,
+                  numRequiredSignatures: 2,
+                },
+                instructions: [
+                  {
+                    accounts: [1, 2, 3],
+                    data: '37u9WtQpcm6ULa3VtWDFAWoQc1hUvybPrA3dtx99tgHvvcE7pKRZjuGmn7VX2tC3JmYDYGG7',
+                    programIdIndex: 4,
+                  },
+                ],
+                recentBlockhash: 'GeyAFFRY3WGpmam2hbgrKw4rbU2RKzfVLm5QLSeZwTZE',
+              },
+              signatures: [
+                'w2Zeq8YkpyB463DttvfzARD7k9ZxGEwbsEw4boEK7jDp3pfoxZbTdLFSsEPhzXhpCcjGi2kHtHFobgX49MMhbWt',
+                '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG',
+              ],
+            },
+          },
+        ],
+      },
+    });
+
+    // Find a block that has a transaction.
+    await mockRpcResponse({
+      method: 'getFirstAvailableBlock',
+      params: [],
+      value: 1,
+    });
+    let slot = await connection.getFirstAvailableBlock();
+
+    let transaction: string | undefined;
+    while (!transaction) {
+      const block = await connection.getBlock(slot);
+      if (block && block.transactions.length > 0) {
+        transaction = block.transactions[0].transaction.signatures[0];
+        continue;
+      }
+      slot++;
+    }
+
+    await mockRpcBatchResponse({
+      batch: [
+        {
+          methodName: 'getTransaction',
+          args: [transaction],
+        },
+      ],
+      result: [
+        {
+          slot,
+          transaction: {
+            message: {
+              accountKeys: [
+                'va12u4o9DipLEB2z4fuoHszroq1U9NcAB9aooFDPJSf',
+                '57zQNBZBEiHsCZFqsaY6h176ioXy5MsSLmcvHkEyaLGy',
+                'SysvarS1otHashes111111111111111111111111111',
+                'SysvarC1ock11111111111111111111111111111111',
+                'Vote111111111111111111111111111111111111111',
+              ],
+              header: {
+                numReadonlySignedAccounts: 0,
+                numReadonlyUnsignedAccounts: 3,
+                numRequiredSignatures: 2,
+              },
+              instructions: [
+                {
+                  accounts: [1, 2, 3],
+                  data: '37u9WtQpcm6ULa3VtWDFAWoQc1hUvybPrA3dtx99tgHvvcE7pKRZjuGmn7VX2tC3JmYDYGG7',
+                  programIdIndex: 4,
+                },
+              ],
+              recentBlockhash: 'GeyAFFRY3WGpmam2hbgrKw4rbU2RKzfVLm5QLSeZwTZE',
+            },
+            signatures: [
+              'w2Zeq8YkpyB463DttvfzARD7k9ZxGEwbsEw4boEK7jDp3pfoxZbTdLFSsEPhzXhpCcjGi2kHtHFobgX49MMhbWt',
+              '4oCEqwGrMdBeMxpzuWiukCYqSfV4DsSKXSiVVCh1iJ6pS772X7y219JZP3mgqBz5PhsvprpKyhzChjYc3VSBQXzG',
+            ],
+          },
+          meta: {
+            fee: 10000,
+            postBalances: [499260347380, 15298080, 1, 1, 1],
+            preBalances: [499260357380, 15298080, 1, 1, 1],
+            status: {Ok: null},
+            err: null,
+          },
+        },
+      ],
+    });
+    const [firstResult] = await connection.getTransactions([transaction]);
+    if (firstResult == null) {
+      expect.fail('Expected `getTransactions()` to return one result');
+    }
+    expect(firstResult.transaction.message.isAccountSigner(0)).to.be.true;
+  });
+
   if (mockServer) {
     it('get parsed confirmed transaction coerces public keys of inner instructions', async () => {
       const confirmedTransaction: TransactionSignature =
@@ -3019,29 +3164,41 @@ describe('Connection', function () {
     expect(supply.nonCirculatingAccounts.length).to.eq(0);
   });
 
-  it('get performance samples', async () => {
-    await mockRpcResponse({
-      method: 'getRecentPerformanceSamples',
-      params: [],
-      value: [
-        {
-          slot: 1234,
-          numTransactions: 1000,
-          numSlots: 60,
-          samplePeriodSecs: 60,
-        },
-      ],
-    });
+  [undefined, 'confirmed' as Commitment].forEach(function (commitment) {
+    describe(
+      "when the connection's default commitment is `" + commitment + '`',
+      () => {
+        let connectionWithCommitment: Connection;
+        beforeEach(() => {
+          connectionWithCommitment = new Connection(url, commitment);
+        });
+        it('get performance samples', async () => {
+          await mockRpcResponse({
+            method: 'getRecentPerformanceSamples',
+            params: [],
+            value: [
+              {
+                slot: 1234,
+                numTransactions: 1000,
+                numSlots: 60,
+                samplePeriodSecs: 60,
+              },
+            ],
+          });
 
-    const perfSamples = await connection.getRecentPerformanceSamples();
-    expect(Array.isArray(perfSamples)).to.be.true;
+          const perfSamples =
+            await connectionWithCommitment.getRecentPerformanceSamples();
+          expect(Array.isArray(perfSamples)).to.be.true;
 
-    if (perfSamples.length > 0) {
-      expect(perfSamples[0].slot).to.be.greaterThan(0);
-      expect(perfSamples[0].numTransactions).to.be.greaterThan(0);
-      expect(perfSamples[0].numSlots).to.be.greaterThan(0);
-      expect(perfSamples[0].samplePeriodSecs).to.be.greaterThan(0);
-    }
+          if (perfSamples.length > 0) {
+            expect(perfSamples[0].slot).to.be.greaterThan(0);
+            expect(perfSamples[0].numTransactions).to.be.greaterThan(0);
+            expect(perfSamples[0].numSlots).to.be.greaterThan(0);
+            expect(perfSamples[0].samplePeriodSecs).to.be.greaterThan(0);
+          }
+        });
+      },
+    );
   });
 
   it('get performance samples limit too high', async () => {
@@ -3061,8 +3218,9 @@ describe('Connection', function () {
   if (process.env.TEST_LIVE) {
     describe('token methods', () => {
       const connection = new Connection(url, 'confirmed');
-      const newAccount = Keypair.generate().publicKey;
+      const newAccount = PublicKey.unique();
 
+      let payerKeypair = new Keypair();
       let testTokenMintPubkey: PublicKey;
       let testOwnerKeypair: Keypair;
       let testTokenAccountPubkey: PublicKey;
@@ -3072,7 +3230,6 @@ describe('Connection', function () {
       before(async function () {
         this.timeout(30 * 1000);
 
-        const payerKeypair = new Keypair();
         await connection.confirmTransaction(
           await connection.requestAirdrop(payerKeypair.publicKey, 100000000000),
         );
@@ -3103,7 +3260,6 @@ describe('Connection', function () {
           11111,
         );
 
-        console.log('create mint');
         const mintPubkey2 = await splToken.createMint(
           connection as any,
           payerKeypair,
@@ -3228,6 +3384,55 @@ describe('Connection', function () {
             expect(data.parsed).to.be.ok;
           }
         }
+      });
+
+      it('get multiple parsed token accounts', async () => {
+        const accounts = (
+          await connection.getMultipleParsedAccounts([
+            testTokenAccountPubkey,
+            testTokenMintPubkey,
+            payerKeypair.publicKey,
+            newAccount,
+          ])
+        ).value;
+        expect(accounts.length).to.eq(4);
+
+        const parsedTokenAccount = accounts[0];
+        if (parsedTokenAccount) {
+          const data = parsedTokenAccount.data;
+          if (Buffer.isBuffer(data)) {
+            expect(Buffer.isBuffer(data)).to.eq(false);
+          } else {
+            expect(data.program).to.eq('spl-token');
+            expect(data.parsed).to.be.ok;
+          }
+        } else {
+          expect(parsedTokenAccount).to.be.ok;
+        }
+
+        const parsedTokenMint = accounts[1];
+        if (parsedTokenMint) {
+          const data = parsedTokenMint.data;
+          if (Buffer.isBuffer(data)) {
+            expect(Buffer.isBuffer(data)).to.eq(false);
+          } else {
+            expect(data.program).to.eq('spl-token');
+            expect(data.parsed).to.be.ok;
+          }
+        } else {
+          expect(parsedTokenMint).to.be.ok;
+        }
+
+        const unparsedPayerAccount = accounts[2];
+        if (unparsedPayerAccount) {
+          const data = unparsedPayerAccount.data;
+          expect(Buffer.isBuffer(data)).to.be.true;
+        } else {
+          expect(unparsedPayerAccount).to.be.ok;
+        }
+
+        const unknownAccount = accounts[3];
+        expect(unknownAccount).to.not.be.ok;
       });
 
       it('get parsed token program accounts', async () => {
@@ -3609,7 +3814,136 @@ describe('Connection', function () {
     verifySignatureStatus(response, expectedErr);
   });
 
+  if (mockServer) {
+    it('returnData on simulateTransaction', async () => {
+      const tx = new Transaction();
+      tx.feePayer = Keypair.generate().publicKey;
+
+      const getLatestBlockhashResponse = {
+        method: 'getLatestBlockhash',
+        params: [],
+        value: {
+          blockhash: 'CSymwgTNX1j3E4qhKfJAUE41nBWEwXufoYryPbkde5RR',
+          feeCalculator: {
+            lamportsPerSignature: 5000,
+          },
+          lastValidBlockHeight: 51,
+        },
+        withContext: true,
+      };
+      const simulateTransactionResponse = {
+        method: 'simulateTransaction',
+        params: [],
+        value: {
+          err: null,
+          accounts: null,
+          logs: [
+            'Program 83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri invoke [1]',
+            'Program 83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri consumed 2366 of 1400000 compute units',
+            'Program return: 83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri KgAAAAAAAAA=',
+            'Program 83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri success',
+          ],
+          returnData: {
+            data: ['KgAAAAAAAAA==', 'base64'],
+            programId: '83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri',
+          },
+          unitsConsumed: 2366,
+        },
+        withContext: true,
+      };
+      await mockRpcResponse(getLatestBlockhashResponse);
+      await mockRpcResponse(simulateTransactionResponse);
+      const response = (await connection.simulateTransaction(tx)).value;
+      expect(response.returnData).to.eql({
+        data: ['KgAAAAAAAAA==', 'base64'],
+        programId: '83astBRguLMdt2h5U1Tpdq5tjFoJ6noeGwaY3mDLVcri',
+      });
+    });
+  }
+
   if (process.env.TEST_LIVE) {
+    it('getStakeMinimumDelegation', async () => {
+      const {value} = await connection.getStakeMinimumDelegation();
+      expect(value).to.be.a('number');
+    });
+
+    it('sendTransaction', async () => {
+      const connection = new Connection(url, 'confirmed');
+      const payer = Keypair.generate();
+
+      await helpers.airdrop({
+        connection,
+        address: payer.publicKey,
+        amount: LAMPORTS_PER_SOL,
+      });
+
+      const recentBlockhash = await (
+        await helpers.latestBlockhash({connection})
+      ).blockhash;
+
+      const versionedTx = new VersionedTransaction(
+        new Message({
+          header: {
+            numRequiredSignatures: 1,
+            numReadonlySignedAccounts: 0,
+            numReadonlyUnsignedAccounts: 0,
+          },
+          recentBlockhash,
+          instructions: [],
+          accountKeys: [payer.publicKey.toBase58()],
+        }),
+      );
+
+      versionedTx.sign([payer]);
+      await connection.sendTransaction(versionedTx);
+    });
+
+    it('simulateTransaction', async () => {
+      const connection = new Connection(url, 'confirmed');
+      const payer = Keypair.generate();
+
+      await helpers.airdrop({
+        connection,
+        address: payer.publicKey,
+        amount: LAMPORTS_PER_SOL,
+      });
+
+      const recentBlockhash = await (
+        await helpers.latestBlockhash({connection})
+      ).blockhash;
+
+      const versionedTx = new VersionedTransaction(
+        new Message({
+          header: {
+            numRequiredSignatures: 1,
+            numReadonlySignedAccounts: 0,
+            numReadonlyUnsignedAccounts: 0,
+          },
+          recentBlockhash,
+          instructions: [],
+          accountKeys: [payer.publicKey.toBase58()],
+        }),
+      );
+
+      const response = await connection.simulateTransaction(versionedTx, {
+        accounts: {
+          encoding: 'base64',
+          addresses: [payer.publicKey.toBase58()],
+        },
+      });
+      expect(response.value.err).to.be.null;
+      expect(response.value.accounts).to.eql([
+        {
+          data: ['', 'base64'],
+          executable: false,
+          lamports: LAMPORTS_PER_SOL - 5000,
+          owner: SystemProgram.programId.toBase58(),
+          rentEpoch: 0,
+          space: 0,
+        },
+      ]);
+    });
+
     it('simulate transaction with message', async () => {
       connection._commitment = 'confirmed';
 
@@ -4044,5 +4378,322 @@ describe('Connection', function () {
       const version = await connection.getVersion();
       expect(version['solana-core']).to.be.ok;
     }).timeout(20 * 1000);
+
+    let lookupTableKey: PublicKey;
+    const lookupTableAddresses = new Array(10)
+      .fill(0)
+      .map(() => Keypair.generate().publicKey);
+
+    describe('address lookup table program', () => {
+      const connection = new Connection(url);
+      const payer = Keypair.generate();
+
+      before(async () => {
+        await helpers.airdrop({
+          connection,
+          address: payer.publicKey,
+          amount: 10 * LAMPORTS_PER_SOL,
+        });
+      });
+
+      it('createLookupTable', async () => {
+        const recentSlot = await connection.getSlot('finalized');
+
+        let createIx: TransactionInstruction;
+        [createIx, lookupTableKey] =
+          AddressLookupTableProgram.createLookupTable({
+            recentSlot,
+            payer: payer.publicKey,
+            authority: payer.publicKey,
+          });
+
+        await helpers.processTransaction({
+          connection,
+          transaction: new Transaction().add(createIx),
+          signers: [payer],
+          commitment: 'processed',
+        });
+      });
+
+      it('extendLookupTable', async () => {
+        const transaction = new Transaction().add(
+          AddressLookupTableProgram.extendLookupTable({
+            lookupTable: lookupTableKey,
+            addresses: lookupTableAddresses,
+            authority: payer.publicKey,
+            payer: payer.publicKey,
+          }),
+        );
+
+        await helpers.processTransaction({
+          connection,
+          transaction,
+          signers: [payer],
+          commitment: 'processed',
+        });
+      });
+
+      it('freezeLookupTable', async () => {
+        const transaction = new Transaction().add(
+          AddressLookupTableProgram.freezeLookupTable({
+            lookupTable: lookupTableKey,
+            authority: payer.publicKey,
+          }),
+        );
+
+        await helpers.processTransaction({
+          connection,
+          transaction,
+          signers: [payer],
+          commitment: 'processed',
+        });
+      });
+
+      it('getAddressLookupTable', async () => {
+        const lookupTableResponse = await connection.getAddressLookupTable(
+          lookupTableKey,
+          {
+            commitment: 'processed',
+          },
+        );
+        const lookupTableAccount = lookupTableResponse.value;
+        if (!lookupTableAccount) {
+          expect(lookupTableAccount).to.be.ok;
+          return;
+        }
+        expect(lookupTableAccount.isActive()).to.be.true;
+        expect(lookupTableAccount.state.authority).to.be.undefined;
+        expect(lookupTableAccount.state.addresses).to.eql(lookupTableAddresses);
+      });
+    });
+
+    describe('v0 transaction', () => {
+      const connection = new Connection(url);
+      const payer = Keypair.generate();
+
+      before(async () => {
+        await helpers.airdrop({
+          connection,
+          address: payer.publicKey,
+          amount: 10 * LAMPORTS_PER_SOL,
+        });
+      });
+
+      // wait for lookup table to be usable
+      before(async () => {
+        const lookupTableResponse = await connection.getAddressLookupTable(
+          lookupTableKey,
+          {
+            commitment: 'processed',
+          },
+        );
+
+        const lookupTableAccount = lookupTableResponse.value;
+        if (!lookupTableAccount) {
+          expect(lookupTableAccount).to.be.ok;
+          return;
+        }
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const latestSlot = await connection.getSlot('confirmed');
+          if (latestSlot > lookupTableAccount.state.lastExtendedSlot) {
+            break;
+          } else {
+            console.log('Waiting for next slot...');
+            await sleep(500);
+          }
+        }
+      });
+
+      let signature;
+      let addressTableLookups;
+      it('send and confirm', async () => {
+        const {blockhash, lastValidBlockHeight} =
+          await connection.getLatestBlockhash();
+        const transferIxData = encodeData(SYSTEM_INSTRUCTION_LAYOUTS.Transfer, {
+          lamports: BigInt(LAMPORTS_PER_SOL),
+        });
+        addressTableLookups = [
+          {
+            accountKey: lookupTableKey,
+            writableIndexes: [0],
+            readonlyIndexes: [],
+          },
+        ];
+        const transaction = new VersionedTransaction(
+          new MessageV0({
+            header: {
+              numRequiredSignatures: 1,
+              numReadonlySignedAccounts: 0,
+              numReadonlyUnsignedAccounts: 1,
+            },
+            staticAccountKeys: [payer.publicKey, SystemProgram.programId],
+            recentBlockhash: blockhash,
+            compiledInstructions: [
+              {
+                programIdIndex: 1,
+                accountKeyIndexes: [0, 2],
+                data: transferIxData,
+              },
+            ],
+            addressTableLookups,
+          }),
+        );
+        transaction.sign([payer]);
+        signature = bs58.encode(transaction.signatures[0]);
+        const serializedTransaction = transaction.serialize();
+        await connection.sendRawTransaction(serializedTransaction, {
+          preflightCommitment: 'confirmed',
+        });
+
+        await connection.confirmTransaction(
+          {
+            signature,
+            blockhash,
+            lastValidBlockHeight,
+          },
+          'confirmed',
+        );
+
+        const transferToKey = lookupTableAddresses[0];
+        const transferToAccount = await connection.getAccountInfo(
+          transferToKey,
+          {commitment: 'confirmed', dataSlice: {length: 0, offset: 0}},
+        );
+        expect(transferToAccount?.data.length).to.be.eq(0);
+        expect(transferToAccount?.lamports).to.be.eq(LAMPORTS_PER_SOL);
+      });
+
+      it('getTransaction (failure)', async () => {
+        await expect(
+          connection.getTransaction(signature, {
+            commitment: 'confirmed',
+          }),
+        ).to.be.rejectedWith(
+          'failed to get transaction: Transaction version (0) is not supported',
+        );
+      });
+
+      let transactionSlot;
+      it('getTransaction', async () => {
+        // fetch v0 transaction
+        const fetchedTransaction = await connection.getTransaction(signature, {
+          commitment: 'confirmed',
+          maxSupportedTransactionVersion: 0,
+        });
+        if (fetchedTransaction === null) {
+          expect(fetchedTransaction).to.not.be.null;
+          return;
+        }
+        transactionSlot = fetchedTransaction.slot;
+        expect(fetchedTransaction.version).to.eq(0);
+        expect(fetchedTransaction.meta?.loadedAddresses).to.eql({
+          readonly: [],
+          writable: [lookupTableAddresses[0]],
+        });
+        expect(fetchedTransaction.meta?.computeUnitsConsumed).to.not.be
+          .undefined;
+        expect(
+          fetchedTransaction.transaction.message.addressTableLookups,
+        ).to.eql(addressTableLookups);
+      });
+
+      it('getParsedTransaction (failure)', async () => {
+        await expect(
+          connection.getParsedTransaction(signature, {
+            commitment: 'confirmed',
+          }),
+        ).to.be.rejectedWith(
+          'failed to get transaction: Transaction version (0) is not supported',
+        );
+      });
+
+      it('getParsedTransaction', async () => {
+        const parsedTransaction = await connection.getParsedTransaction(
+          signature,
+          {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          },
+        );
+        expect(parsedTransaction).to.not.be.null;
+        expect(parsedTransaction?.version).to.eq(0);
+        // loaded addresses are not returned for parsed transactions
+        expect(parsedTransaction?.meta?.loadedAddresses).to.be.undefined;
+        expect(parsedTransaction?.meta?.computeUnitsConsumed).to.not.be
+          .undefined;
+        expect(
+          parsedTransaction?.transaction.message.addressTableLookups,
+        ).to.eql(addressTableLookups);
+        expect(parsedTransaction?.transaction.message.accountKeys).to.eql([
+          {
+            pubkey: payer.publicKey,
+            signer: true,
+            writable: true,
+            source: 'transaction',
+          },
+          {
+            pubkey: SystemProgram.programId,
+            signer: false,
+            writable: false,
+            source: 'transaction',
+          },
+          {
+            pubkey: lookupTableAddresses[0],
+            signer: false,
+            writable: true,
+            source: 'lookupTable',
+          },
+        ]);
+      });
+
+      it('getBlock (failure)', async () => {
+        await expect(
+          connection.getBlock(transactionSlot, {
+            maxSupportedTransactionVersion: undefined,
+            commitment: 'confirmed',
+          }),
+        ).to.be.rejectedWith(
+          'failed to get confirmed block: Transaction version (0) is not supported',
+        );
+      });
+
+      it('getBlock', async () => {
+        const block = await connection.getBlock(transactionSlot, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        });
+        expect(block).to.not.be.null;
+        if (block === null) throw new Error(); // unreachable
+
+        let foundTx = false;
+        for (const tx of block.transactions) {
+          if (tx.transaction.signatures[0] === signature) {
+            foundTx = true;
+            expect(tx.version).to.eq(0);
+          }
+        }
+        expect(foundTx).to.be.true;
+      });
+
+      it('getParsedBlock', async () => {
+        const block = await connection.getParsedBlock(transactionSlot, {
+          maxSupportedTransactionVersion: 0,
+          commitment: 'confirmed',
+        });
+        expect(block).to.not.be.null;
+        if (block === null) throw new Error(); // unreachable
+
+        let foundTx = false;
+        for (const tx of block.transactions) {
+          if (tx.transaction.signatures[0] === signature) {
+            foundTx = true;
+            expect(tx.version).to.eq(0);
+          }
+        }
+        expect(foundTx).to.be.true;
+      });
+    }).timeout(5 * 1000);
   }
 });

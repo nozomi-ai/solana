@@ -9,7 +9,7 @@ use {
     },
     crossbeam_channel::{Receiver, RecvTimeoutError, SendError, Sender},
     histogram::Histogram,
-    solana_sdk::{packet::Packet, timing::timestamp},
+    solana_sdk::{packet::Packet, pubkey::Pubkey, timing::timestamp},
     std::{
         cmp::Reverse,
         collections::HashMap,
@@ -23,6 +23,16 @@ use {
     },
     thiserror::Error,
 };
+
+// Total stake and nodes => stake map
+#[derive(Default)]
+pub struct StakedNodes {
+    pub total_stake: u64,
+    pub max_stake: u64,
+    pub min_stake: u64,
+    pub ip_stake_map: HashMap<IpAddr, u64>,
+    pub pubkey_stake_map: HashMap<Pubkey, u64>,
+}
 
 pub type PacketBatchReceiver = Receiver<PacketBatch>;
 pub type PacketBatchSender = Sender<PacketBatch>;
@@ -158,7 +168,7 @@ pub fn receiver(
     let res = socket.set_read_timeout(Some(Duration::new(1, 0)));
     assert!(res.is_ok(), "streamer::receiver set_read_timeout error");
     Builder::new()
-        .name("solana-receiver".to_string())
+        .name("solReceiver".to_string())
         .spawn(move || {
             let _ = recv_loop(
                 &socket,
@@ -279,7 +289,7 @@ impl StreamerSendStats {
     fn record(&mut self, pkt: &Packet) {
         let ent = self.host_map.entry(pkt.meta.addr).or_default();
         ent.count += 1;
-        ent.bytes += pkt.data.len() as u64;
+        ent.bytes += pkt.data(..).map(<[u8]>::len).unwrap_or_default() as u64;
     }
 }
 
@@ -292,13 +302,12 @@ fn recv_send(
     let timer = Duration::new(1, 0);
     let packet_batch = r.recv_timeout(timer)?;
     if let Some(stats) = stats {
-        packet_batch.packets.iter().for_each(|p| stats.record(p));
+        packet_batch.iter().for_each(|p| stats.record(p));
     }
-    let packets = packet_batch.packets.iter().filter_map(|pkt| {
+    let packets = packet_batch.iter().filter_map(|pkt| {
         let addr = pkt.meta.socket_addr();
-        socket_addr_space
-            .check(&addr)
-            .then(|| (&pkt.data[..pkt.meta.size], addr))
+        let data = pkt.data(..)?;
+        socket_addr_space.check(&addr).then_some((data, addr))
     });
     batch_send(sock, &packets.collect::<Vec<_>>())?;
     Ok(())
@@ -313,13 +322,13 @@ pub fn recv_vec_packet_batches(
     trace!("got packets");
     let mut num_packets = packet_batches
         .iter()
-        .map(|packets| packets.packets.len())
+        .map(|packets| packets.len())
         .sum::<usize>();
     while let Ok(packet_batch) = recvr.try_recv() {
         trace!("got more packets");
         num_packets += packet_batch
             .iter()
-            .map(|packets| packets.packets.len())
+            .map(|packets| packets.len())
             .sum::<usize>();
         packet_batches.extend(packet_batch);
     }
@@ -339,11 +348,11 @@ pub fn recv_packet_batches(
     let packet_batch = recvr.recv_timeout(timer)?;
     let recv_start = Instant::now();
     trace!("got packets");
-    let mut num_packets = packet_batch.packets.len();
+    let mut num_packets = packet_batch.len();
     let mut packet_batches = vec![packet_batch];
     while let Ok(packet_batch) = recvr.try_recv() {
         trace!("got more packets");
-        num_packets += packet_batch.packets.len();
+        num_packets += packet_batch.len();
         packet_batches.push(packet_batch);
     }
     let recv_duration = recv_start.elapsed();
@@ -363,7 +372,7 @@ pub fn responder(
     stats_reporter_sender: Option<Sender<Box<dyn FnOnce() + Send>>>,
 ) -> JoinHandle<()> {
     Builder::new()
-        .name(format!("solana-responder-{}", name))
+        .name(format!("solRspndr{}", name))
         .spawn(move || {
             let mut errors = 0;
             let mut last_error = None;
@@ -431,7 +440,7 @@ mod test {
                 continue;
             }
 
-            *num_packets -= packet_batch_res.unwrap().packets.len();
+            *num_packets -= packet_batch_res.unwrap().len();
 
             if *num_packets == 0 {
                 break;
@@ -468,7 +477,7 @@ mod test {
         let t_responder = {
             let (s_responder, r_responder) = unbounded();
             let t_responder = responder(
-                "streamer_send_test",
+                "SendTest",
                 Arc::new(send),
                 r_responder,
                 SocketAddrSpace::Unspecified,
@@ -478,11 +487,11 @@ mod test {
             for i in 0..NUM_PACKETS {
                 let mut p = Packet::default();
                 {
-                    p.data[0] = i as u8;
+                    p.buffer_mut()[0] = i as u8;
                     p.meta.size = PACKET_DATA_SIZE;
                     p.meta.set_socket_addr(&addr);
                 }
-                packet_batch.packets.push(p);
+                packet_batch.push(p);
             }
             s_responder.send(packet_batch).expect("send");
             t_responder

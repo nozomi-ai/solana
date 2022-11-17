@@ -15,13 +15,17 @@ use {
     inflector::cases::titlecase::to_title_case,
     serde::{Deserialize, Serialize},
     serde_json::{Map, Value},
-    solana_account_decoder::parse_token::UiTokenAccount,
+    solana_account_decoder::{
+        parse_account_data::AccountAdditionalData, parse_token::UiTokenAccount, UiAccount,
+        UiAccountEncoding, UiDataSliceConfig,
+    },
     solana_clap_utils::keypair::SignOnly,
-    solana_client::rpc_response::{
+    solana_rpc_client_api::response::{
         RpcAccountBalance, RpcContactInfo, RpcInflationGovernor, RpcInflationRate, RpcKeyedAccount,
         RpcSupply, RpcVoteAccountInfo,
     },
     solana_sdk::{
+        account::ReadableAccount,
         clock::{Epoch, Slot, UnixTimestamp},
         epoch_info::EpochInfo,
         hash::Hash,
@@ -105,6 +109,63 @@ pub struct CliAccount {
     pub keyed_account: RpcKeyedAccount,
     #[serde(skip_serializing, skip_deserializing)]
     pub use_lamports_unit: bool,
+}
+
+pub struct CliAccountNewConfig {
+    pub data_encoding: UiAccountEncoding,
+    pub additional_data: Option<AccountAdditionalData>,
+    pub data_slice_config: Option<UiDataSliceConfig>,
+    pub use_lamports_unit: bool,
+}
+
+impl Default for CliAccountNewConfig {
+    fn default() -> Self {
+        Self {
+            data_encoding: UiAccountEncoding::Base64,
+            additional_data: None,
+            data_slice_config: None,
+            use_lamports_unit: false,
+        }
+    }
+}
+
+impl CliAccount {
+    pub fn new<T: ReadableAccount>(address: &Pubkey, account: &T, use_lamports_unit: bool) -> Self {
+        Self::new_with_config(
+            address,
+            account,
+            &CliAccountNewConfig {
+                use_lamports_unit,
+                ..CliAccountNewConfig::default()
+            },
+        )
+    }
+
+    pub fn new_with_config<T: ReadableAccount>(
+        address: &Pubkey,
+        account: &T,
+        config: &CliAccountNewConfig,
+    ) -> Self {
+        let CliAccountNewConfig {
+            data_encoding,
+            additional_data,
+            data_slice_config,
+            use_lamports_unit,
+        } = *config;
+        Self {
+            keyed_account: RpcKeyedAccount {
+                pubkey: address.to_string(),
+                account: UiAccount::encode(
+                    address,
+                    account,
+                    data_encoding,
+                    additional_data,
+                    data_slice_config,
+                ),
+            },
+            use_lamports_unit,
+        }
+    }
 }
 
 impl QuietDisplay for CliAccount {}
@@ -251,6 +312,7 @@ pub struct CliSlotStatus {
 pub struct CliEpochInfo {
     #[serde(flatten)]
     pub epoch_info: EpochInfo,
+    pub epoch_completed_percent: f64,
     #[serde(skip)]
     pub average_slot_time_ms: u64,
     #[serde(skip)]
@@ -285,10 +347,7 @@ impl fmt::Display for CliEpochInfo {
         writeln_name_value(
             f,
             "Epoch Completed Percent:",
-            &format!(
-                "{:>3.3}%",
-                self.epoch_info.slot_index as f64 / self.epoch_info.slots_in_epoch as f64 * 100_f64
-            ),
+            &format!("{:>3.3}%", self.epoch_completed_percent),
         )?;
         let remaining_slots_in_epoch = self.epoch_info.slots_in_epoch - self.epoch_info.slot_index;
         writeln_name_value(
@@ -456,7 +515,7 @@ impl fmt::Display for CliValidators {
             "Credits",
             "Version",
             "Active Stake",
-            padding = padding + 1
+            padding = padding + 2
         ))
         .bold();
         writeln!(f, "{}", header)?;
@@ -526,7 +585,12 @@ impl fmt::Display for CliValidators {
 
         for (i, validator) in sorted_validators.iter().enumerate() {
             if padding > 0 {
-                write!(f, "{:padding$}", i + 1, padding = padding)?;
+                let num = if self.validators_reverse_sort {
+                    i + 1
+                } else {
+                    sorted_validators.len() - i
+                };
+                write!(f, "{:padding$} ", num, padding = padding)?;
             }
             write_vote_account(
                 f,
@@ -2108,6 +2172,75 @@ impl fmt::Display for CliUpgradeableBuffers {
     }
 }
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CliAddressLookupTable {
+    pub lookup_table_address: String,
+    pub authority: Option<String>,
+    pub deactivation_slot: u64,
+    pub last_extended_slot: u64,
+    pub addresses: Vec<String>,
+}
+impl QuietDisplay for CliAddressLookupTable {}
+impl VerboseDisplay for CliAddressLookupTable {}
+impl fmt::Display for CliAddressLookupTable {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f)?;
+        writeln_name_value(f, "Lookup Table Address:", &self.lookup_table_address)?;
+        if let Some(authority) = &self.authority {
+            writeln_name_value(f, "Authority:", authority)?;
+        } else {
+            writeln_name_value(f, "Authority:", "None (frozen)")?;
+        }
+        if self.deactivation_slot == u64::MAX {
+            writeln_name_value(f, "Deactivation Slot:", "None (still active)")?;
+        } else {
+            writeln_name_value(f, "Deactivation Slot:", &self.deactivation_slot.to_string())?;
+        }
+        if self.last_extended_slot == 0 {
+            writeln_name_value(f, "Last Extended Slot:", "None (empty)")?;
+        } else {
+            writeln_name_value(
+                f,
+                "Last Extended Slot:",
+                &self.last_extended_slot.to_string(),
+            )?;
+        }
+        if self.addresses.is_empty() {
+            writeln_name_value(f, "Address Table Entries:", "None (empty)")?;
+        } else {
+            writeln!(f, "{}", style("Address Table Entries:".to_string()).bold())?;
+            writeln!(f)?;
+            writeln!(
+                f,
+                "{}",
+                style(format!("  {:<5}  {}", "Index", "Address")).bold()
+            )?;
+            for (index, address) in self.addresses.iter().enumerate() {
+                writeln!(f, "  {:<5}  {}", index, address)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliAddressLookupTableCreated {
+    pub lookup_table_address: String,
+    pub signature: String,
+}
+impl QuietDisplay for CliAddressLookupTableCreated {}
+impl VerboseDisplay for CliAddressLookupTableCreated {}
+impl fmt::Display for CliAddressLookupTableCreated {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        writeln!(f)?;
+        writeln_name_value(f, "Signature:", &self.signature)?;
+        writeln_name_value(f, "Lookup Table Address:", &self.lookup_table_address)?;
+        Ok(())
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct ReturnSignersConfig {
     pub dump_transaction_message: bool,
@@ -2149,7 +2282,7 @@ pub fn return_signers_data(tx: &Transaction, config: &ReturnSignersConfig) -> Cl
         });
     let message = if config.dump_transaction_message {
         let message_data = tx.message_data();
-        Some(base64::encode(&message_data))
+        Some(base64::encode(message_data))
     } else {
         None
     };
@@ -2709,6 +2842,45 @@ impl fmt::Display for CliPingConfirmationStats {
 }
 impl QuietDisplay for CliPingConfirmationStats {}
 impl VerboseDisplay for CliPingConfirmationStats {}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CliBalance {
+    pub lamports: u64,
+    #[serde(skip)]
+    pub config: BuildBalanceMessageConfig,
+}
+
+impl QuietDisplay for CliBalance {
+    fn write_str(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        let config = BuildBalanceMessageConfig {
+            show_unit: false,
+            trim_trailing_zeros: true,
+            ..self.config
+        };
+        let balance_message = build_balance_message_with_config(self.lamports, &config);
+        write!(w, "{}", balance_message)
+    }
+}
+
+impl VerboseDisplay for CliBalance {
+    fn write_str(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        let config = BuildBalanceMessageConfig {
+            show_unit: true,
+            trim_trailing_zeros: false,
+            ..self.config
+        };
+        let balance_message = build_balance_message_with_config(self.lamports, &config);
+        write!(w, "{}", balance_message)
+    }
+}
+
+impl fmt::Display for CliBalance {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let balance_message = build_balance_message_with_config(self.lamports, &self.config);
+        write!(f, "{}", balance_message)
+    }
+}
 
 #[cfg(test)]
 mod tests {

@@ -42,10 +42,10 @@ lazy_static::lazy_static! {
 #[derive(Clone, Copy, Pod, Zeroable)]
 #[repr(C)]
 pub struct TransferData {
-    /// Group encryption of the low 32 bits of the transfer amount
+    /// Group encryption of the low 16 bits of the transfer amount
     pub ciphertext_lo: pod::TransferAmountEncryption,
 
-    /// Group encryption of the high 32 bits of the transfer amount
+    /// Group encryption of the high 48 bits of the transfer amount
     pub ciphertext_hi: pod::TransferAmountEncryption,
 
     /// The public encryption keys associated with the transfer: source, dest, and auditor
@@ -303,11 +303,7 @@ impl TransferProof {
         // generate the range proof
         let range_proof = if TRANSFER_AMOUNT_LO_BITS == 32 {
             RangeProof::new(
-                vec![
-                    source_new_balance,
-                    transfer_amount_lo as u64,
-                    transfer_amount_hi as u64,
-                ],
+                vec![source_new_balance, transfer_amount_lo, transfer_amount_hi],
                 vec![
                     TRANSFER_SOURCE_AMOUNT_BITS,
                     TRANSFER_AMOUNT_LO_BITS,
@@ -318,15 +314,15 @@ impl TransferProof {
             )
         } else {
             let transfer_amount_lo_negated =
-                (1 << TRANSFER_AMOUNT_LO_NEGATED_BITS) - 1 - transfer_amount_lo as u64;
+                (1 << TRANSFER_AMOUNT_LO_NEGATED_BITS) - 1 - transfer_amount_lo;
             let opening_lo_negated = &PedersenOpening::default() - opening_lo;
 
             RangeProof::new(
                 vec![
                     source_new_balance,
-                    transfer_amount_lo as u64,
+                    transfer_amount_lo,
                     transfer_amount_lo_negated,
-                    transfer_amount_hi as u64,
+                    transfer_amount_hi,
                 ],
                 vec![
                     TRANSFER_SOURCE_AMOUNT_BITS,

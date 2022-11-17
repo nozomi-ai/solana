@@ -9,6 +9,7 @@ use {
             rpc_accounts::*, rpc_bank::*, rpc_deprecated_v1_7::*, rpc_deprecated_v1_9::*,
             rpc_full::*, rpc_minimal::*, rpc_obsolete_v1_7::*, *,
         },
+        rpc_cache::LargestAccountsCache,
         rpc_health::*,
     },
     crossbeam_channel::unbounded,
@@ -18,7 +19,6 @@ use {
         RequestMiddlewareAction, ServerBuilder,
     },
     regex::Regex,
-    solana_client::rpc_cache::LargestAccountsCache,
     solana_gossip::cluster_info::ClusterInfo,
     solana_ledger::{
         bigtable_upload::ConfirmedBlockUploadConfig,
@@ -30,6 +30,7 @@ use {
     solana_poh::poh_recorder::PohRecorder,
     solana_runtime::{
         bank_forks::BankForks, commitment::BlockCommitmentCache,
+        prioritization_fee_cache::PrioritizationFeeCache,
         snapshot_archive_info::SnapshotArchiveInfoGetter, snapshot_config::SnapshotConfig,
         snapshot_utils,
     },
@@ -39,13 +40,14 @@ use {
     },
     solana_send_transaction_service::send_transaction_service::{self, SendTransactionService},
     solana_storage_bigtable::CredentialType,
+    solana_tpu_client::connection_cache::ConnectionCache,
     std::{
         collections::HashSet,
         net::SocketAddr,
         path::{Path, PathBuf},
         sync::{
             atomic::{AtomicBool, AtomicU64, Ordering},
-            Arc, Mutex, RwLock,
+            Arc, RwLock,
         },
         thread::{self, Builder, JoinHandle},
     },
@@ -342,17 +344,20 @@ impl JsonRpcService {
         block_commitment_cache: Arc<RwLock<BlockCommitmentCache>>,
         blockstore: Arc<Blockstore>,
         cluster_info: Arc<ClusterInfo>,
-        poh_recorder: Option<Arc<Mutex<PohRecorder>>>,
+        poh_recorder: Option<Arc<RwLock<PohRecorder>>>,
         genesis_hash: Hash,
         ledger_path: &Path,
         validator_exit: Arc<RwLock<Exit>>,
         known_validators: Option<HashSet<Pubkey>>,
         override_health_check: Arc<AtomicBool>,
+        startup_verification_complete: Arc<AtomicBool>,
         optimistically_confirmed_bank: Arc<RwLock<OptimisticallyConfirmedBank>>,
         send_transaction_service_config: send_transaction_service::Config,
         max_slots: Arc<MaxSlots>,
         leader_schedule_cache: Arc<LeaderScheduleCache>,
+        connection_cache: Arc<ConnectionCache>,
         current_transaction_status_slot: Arc<AtomicU64>,
+        prioritization_fee_cache: Arc<PrioritizationFeeCache>,
     ) -> Result<Self, String> {
         info!("rpc bound to {:?}", rpc_addr);
         info!("rpc configuration: {:?}", config);
@@ -364,6 +369,7 @@ impl JsonRpcService {
             known_validators,
             config.health_check_slot_distance,
             override_health_check,
+            startup_verification_complete,
         ));
 
         let largest_accounts_cache = Arc::new(RwLock::new(LargestAccountsCache::new(
@@ -382,7 +388,7 @@ impl JsonRpcService {
             tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(rpc_threads)
                 .on_thread_start(move || renice_this_thread(rpc_niceness_adj).unwrap())
-                .thread_name("sol-rpc-el")
+                .thread_name("solRpcEl")
                 .enable_all()
                 .build()
                 .expect("Runtime"),
@@ -394,6 +400,7 @@ impl JsonRpcService {
             if let Some(RpcBigtableConfig {
                 enable_bigtable_ledger_upload,
                 ref bigtable_instance_name,
+                ref bigtable_app_profile_id,
                 timeout,
             }) = config.rpc_bigtable_config
             {
@@ -402,6 +409,7 @@ impl JsonRpcService {
                     timeout,
                     credential_type: CredentialType::Filepath(None),
                     instance_name: bigtable_instance_name.clone(),
+                    app_profile_id: bigtable_app_profile_id.clone(),
                 };
                 runtime
                     .block_on(solana_storage_bigtable::LedgerStorage::new_with_config(
@@ -439,6 +447,9 @@ impl JsonRpcService {
 
         let full_api = config.full_api;
         let obsolete_v1_7_api = config.obsolete_v1_7_api;
+        let max_request_body_size = config
+            .max_request_body_size
+            .unwrap_or(MAX_REQUEST_BODY_SIZE);
         let (request_processor, receiver) = JsonRpcRequestProcessor::new(
             config,
             snapshot_config.clone(),
@@ -455,6 +466,7 @@ impl JsonRpcService {
             max_slots,
             leader_schedule_cache,
             current_transaction_status_slot,
+            prioritization_fee_cache,
         );
 
         let leader_info =
@@ -464,6 +476,7 @@ impl JsonRpcService {
             &bank_forks,
             leader_info,
             receiver,
+            &connection_cache,
             send_transaction_service_config,
         ));
 
@@ -474,7 +487,7 @@ impl JsonRpcService {
 
         let (close_handle_sender, close_handle_receiver) = unbounded();
         let thread_hdl = Builder::new()
-            .name("solana-jsonrpc".to_string())
+            .name("solJsonRpcSvc".to_string())
             .spawn(move || {
                 renice_this_thread(rpc_niceness_adj).unwrap();
 
@@ -509,7 +522,7 @@ impl JsonRpcService {
                 ]))
                 .cors_max_age(86400)
                 .request_middleware(request_middleware)
-                .max_request_body_size(MAX_REQUEST_PAYLOAD_SIZE)
+                .max_request_body_size(max_request_body_size)
                 .start_http(&rpc_addr);
 
                 if let Err(e) = server {
@@ -560,7 +573,6 @@ mod tests {
     use {
         super::*,
         crate::rpc::create_validator_exit,
-        solana_client::rpc_config::RpcContextConfig,
         solana_gossip::{
             contact_info::ContactInfo,
             crds::GossipRoute,
@@ -570,6 +582,7 @@ mod tests {
             genesis_utils::{create_genesis_config, GenesisConfigInfo},
             get_tmp_ledger_path,
         },
+        solana_rpc_client_api::config::RpcContextConfig,
         solana_runtime::bank::Bank,
         solana_sdk::{
             genesis_config::{ClusterType, DEFAULT_GENESIS_ARCHIVE},
@@ -610,6 +623,7 @@ mod tests {
         let block_commitment_cache = Arc::new(RwLock::new(BlockCommitmentCache::default()));
         let optimistically_confirmed_bank =
             OptimisticallyConfirmedBank::locked_from_bank_forks_root(&bank_forks);
+        let connection_cache = Arc::new(ConnectionCache::default());
         let mut rpc_service = JsonRpcService::new(
             rpc_addr,
             JsonRpcConfig::default(),
@@ -624,6 +638,7 @@ mod tests {
             validator_exit,
             None,
             Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicBool::new(true)),
             optimistically_confirmed_bank,
             send_transaction_service::Config {
                 retry_rate_ms: 1000,
@@ -632,11 +647,13 @@ mod tests {
             },
             Arc::new(MaxSlots::default()),
             Arc::new(LeaderScheduleCache::default()),
+            connection_cache,
             Arc::new(AtomicU64::default()),
+            Arc::new(PrioritizationFeeCache::default()),
         )
-        .unwrap();
+        .expect("assume successful JsonRpcService start");
         let thread = rpc_service.thread_hdl.thread();
-        assert_eq!(thread.name().unwrap(), "solana-jsonrpc");
+        assert_eq!(thread.name().unwrap(), "solJsonRpcSvc");
 
         assert_eq!(
             10_000,
@@ -822,6 +839,7 @@ mod tests {
         ));
         let health_check_slot_distance = 123;
         let override_health_check = Arc::new(AtomicBool::new(false));
+        let startup_verification_complete = Arc::new(AtomicBool::new(true));
         let known_validators = vec![
             solana_sdk::pubkey::new_rand(),
             solana_sdk::pubkey::new_rand(),
@@ -833,6 +851,7 @@ mod tests {
             Some(known_validators.clone().into_iter().collect()),
             health_check_slot_distance,
             override_health_check.clone(),
+            startup_verification_complete,
         ));
 
         let rm = RpcRequestMiddleware::new(PathBuf::from("/"), None, create_bank_forks(), health);

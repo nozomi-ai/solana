@@ -27,7 +27,7 @@ if (process.env.TEST_LIVE) {
       before(async function () {
         this.timeout(60_000);
         programData = await fs.readFile(
-          'test/fixtures/noop-program/solana_bpf_rust_noop.so',
+          'test/fixtures/noop-program/solana_sbf_rust_noop.so',
         );
 
         const {feeCalculator} = await connection.getRecentBlockhash();
@@ -145,6 +145,25 @@ if (process.env.TEST_LIVE) {
         expect(logs[logs.length - 1]).to.eq(
           `Program ${program.publicKey.toBase58()} success`,
         );
+      });
+
+      it('simulate transaction with returnData', async () => {
+        const simulatedTransaction = new Transaction().add({
+          keys: [
+            {pubkey: payerAccount.publicKey, isSigner: true, isWritable: true},
+          ],
+          programId: program.publicKey,
+        });
+        const {err, returnData} = (
+          await connection.simulateTransaction(simulatedTransaction, [
+            payerAccount,
+          ])
+        ).value;
+        const expectedReturnData = new Uint8Array([1, 2, 3]);
+        var decodedData = Buffer.from(returnData.data[0], returnData.data[1]);
+        expect(err).to.be.null;
+        expect(returnData.programId).to.eql(program.publicKey.toString());
+        expect(decodedData).to.eql(expectedReturnData);
       });
 
       it('deprecated - simulate transaction without signature verification', async () => {

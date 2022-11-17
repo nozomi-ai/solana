@@ -259,6 +259,23 @@ impl RollingBitField {
         all
     }
 
+    /// return highest item < 'max_slot_exclusive'
+    pub fn get_prior(&self, max_slot_exclusive: Slot) -> Option<Slot> {
+        let mut slot = max_slot_exclusive.saturating_sub(1);
+        self.min().and_then(|min| {
+            loop {
+                if self.contains(&slot) {
+                    return Some(slot);
+                }
+                slot = slot.saturating_sub(1);
+                if slot == 0 || slot < min {
+                    break;
+                }
+            }
+            None
+        })
+    }
+
     pub fn get_all(&self) -> Vec<u64> {
         let mut all = Vec::with_capacity(self.count);
         self.excess.iter().for_each(|slot| all.push(*slot));
@@ -277,8 +294,7 @@ pub mod tests {
 
     impl RollingBitField {
         pub fn clear(&mut self) {
-            let mut n = Self::new(self.max_width);
-            std::mem::swap(&mut n, self);
+            *self = Self::new(self.max_width);
         }
     }
 
@@ -663,14 +679,16 @@ pub mod tests {
                                 for slot in slot..=slot2 {
                                     let slot_use = maybe_reverse(slot);
                                     tester.insert(slot_use);
+                                    /*
+                                    this is noisy on build machine
                                     debug!(
-                                    "slot: {}, bitfield: {:?}, reverse: {}, len: {}, excess: {:?}",
-                                    slot_use,
-                                    tester.bitfield,
-                                    reverse_slots,
-                                    tester.bitfield.len(),
-                                    tester.bitfield.excess
-                                );
+                                        "slot: {}, bitfield: {:?}, reverse: {}, len: {}, excess: {:?}",
+                                        slot_use,
+                                        tester.bitfield,
+                                        reverse_slots,
+                                        tester.bitfield.len(),
+                                        tester.bitfield.excess
+                                    );*/
                                     assert!(
                                         (reverse_slots && tester.bitfield.len() > 1)
                                             ^ tester.bitfield.excess.is_empty()
@@ -768,7 +786,7 @@ pub mod tests {
 
         // bitfield sizes are powers of 2, cycle through values of 1, 2, 4, .. 2^9
         for power in 0..10 {
-            let max_bitfield_width = 2u64.pow(power) as u64;
+            let max_bitfield_width = 2u64.pow(power);
             let width_iteration_max = if max_bitfield_width > 1 {
                 // add up to 2 items so we can test out multiple items
                 3

@@ -4,9 +4,13 @@ use {
         blockstore_meta,
         blockstore_metrics::{
             maybe_enable_rocksdb_perf, report_rocksdb_read_perf, report_rocksdb_write_perf,
-            BlockstoreRocksDbColumnFamilyMetrics, ColumnMetrics, PerfSamplingStatus,
+            BlockstoreRocksDbColumnFamilyMetrics, PerfSamplingStatus, PERF_METRIC_OP_NAME_GET,
+            PERF_METRIC_OP_NAME_MULTI_GET, PERF_METRIC_OP_NAME_PUT,
+            PERF_METRIC_OP_NAME_WRITE_BATCH,
         },
-        rocksdb_metric_header,
+        blockstore_options::{
+            AccessType, BlockstoreOptions, LedgerColumnOptions, ShredStorageType,
+        },
     },
     bincode::{deserialize, serialize},
     byteorder::{BigEndian, ByteOrder},
@@ -17,9 +21,8 @@ use {
         compaction_filter::CompactionFilter,
         compaction_filter_factory::{CompactionFilterContext, CompactionFilterFactory},
         properties as RocksProperties, ColumnFamily, ColumnFamilyDescriptor, CompactionDecision,
-        DBCompactionStyle, DBCompressionType as RocksCompressionType, DBIterator, DBRawIterator,
-        DBRecoveryMode, FifoCompactOptions, IteratorMode as RocksIteratorMode, Options,
-        WriteBatch as RWriteBatch, DB,
+        DBCompactionStyle, DBIterator, DBPinnableSlice, DBRawIterator, FifoCompactOptions,
+        IteratorMode as RocksIteratorMode, LiveFile, Options, WriteBatch as RWriteBatch, DB,
     },
     serde::{de::DeserializeOwned, Serialize},
     solana_runtime::hardened_unpack::UnpackError,
@@ -45,23 +48,8 @@ use {
 
 const BLOCKSTORE_METRICS_ERROR: i64 = -1;
 
-// The default storage size for storing shreds when `rocksdb-shred-compaction`
-// is set to `fifo` in the validator arguments.  This amount of storage size
-// in bytes will equally allocated to both data shreds and coding shreds.
-pub const DEFAULT_ROCKS_FIFO_SHRED_STORAGE_SIZE_BYTES: u64 = 250 * 1024 * 1024 * 1024;
-
 const MAX_WRITE_BUFFER_SIZE: u64 = 256 * 1024 * 1024; // 256MB
 const FIFO_WRITE_BUFFER_SIZE: u64 = 2 * MAX_WRITE_BUFFER_SIZE;
-// Maximum size of cf::DataShred.  Used when `shred_storage_type`
-// is set to ShredStorageType::RocksFifo.  The default value is set
-// to 125GB, assuming 500GB total storage for ledger and 25% is
-// used by data shreds.
-const DEFAULT_FIFO_COMPACTION_DATA_CF_SIZE: u64 = 125 * 1024 * 1024 * 1024;
-// Maximum size of cf::CodeShred.  Used when `shred_storage_type`
-// is set to ShredStorageType::RocksFifo.  The default value is set
-// to 100GB, assuming 500GB total storage for ledger and 20% is
-// used by coding shreds.
-const DEFAULT_FIFO_COMPACTION_CODING_CF_SIZE: u64 = 100 * 1024 * 1024 * 1024;
 
 // Column family for metadata about a leader slot
 const META_CF: &str = "meta";
@@ -107,9 +95,6 @@ const PROGRAM_COSTS_CF: &str = "program_costs";
 /// Column family for optimistic slots
 const OPTIMISTIC_SLOTS_CF: &str = "optimistic_slots";
 
-// 1 day is chosen for the same reasoning of DEFAULT_COMPACTION_SLOT_INTERVAL
-const PERIODIC_COMPACTION_SECONDS: u64 = 60 * 60 * 24;
-
 #[derive(Error, Debug)]
 pub enum BlockstoreError {
     ShredForIndexExists,
@@ -149,83 +134,179 @@ pub enum IteratorMode<Index> {
 
 pub mod columns {
     #[derive(Debug)]
-    /// The slot metadata column
+    /// The slot metadata column.
+    ///
+    /// This column family tracks the status of the received shred data for a
+    /// given slot.  Tracking the progress as the slot fills up allows us to
+    /// know if the slot (or pieces of the slot) are ready to be replayed.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::SlotMeta`
     pub struct SlotMeta;
 
     #[derive(Debug)]
-    /// The orphans column
+    /// The orphans column.
+    ///
+    /// This column family tracks whether a slot has a parent.  Slots without a
+    /// parent are by definition orphan slots.  Orphans will have an entry in
+    /// this column family with true value.  Once an orphan slot has a parent,
+    /// its entry in this column will be deleted.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: bool
     pub struct Orphans;
 
     #[derive(Debug)]
-    /// The dead slots column
+    /// The dead slots column.
+    /// This column family tracks whether a slot is dead.
+    ///
+    /// A slot is marked as dead if the validator thinks it will never be able
+    /// to successfully replay this slot.  Example scenarios include errors
+    /// during the replay of a slot, or the validator believes it will never
+    /// receive all the shreds of a slot.
+    ///
+    /// If a slot has been mistakenly marked as dead, the ledger-tool's
+    /// --remove-dead-slot can unmark a dead slot.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: bool
     pub struct DeadSlots;
 
     #[derive(Debug)]
     /// The duplicate slots column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::DuplicateSlotProof`
     pub struct DuplicateSlots;
 
     #[derive(Debug)]
-    /// The erasure meta column
+    /// The erasure meta column.
+    ///
+    /// This column family stores ErasureMeta which includes metadata about
+    /// dropped network packets (or erasures) that can be used to recover
+    /// missing data shreds.
+    ///
+    /// Its index type is ErasureSetId, which consists of a Slot ID
+    /// and a FEC (Forward Error Correction) set index.
+    ///
+    /// index type: `ErasureSetId` (Slot, fec_set_index: u64)
+    /// value type: `blockstore_meta::ErasureMeta`
     pub struct ErasureMeta;
 
     #[derive(Debug)]
-    /// The bank hash column
+    /// The bank hash column.
+    ///
+    /// This column family persists the bank hash of a given slot.  Note that
+    /// not every slot has a bank hash (e.g., a dead slot.)
+    ///
+    /// The bank hash of a slot is derived from hashing the delta state of all
+    /// the accounts in a slot combined with the bank hash of its parent slot.
+    /// A bank hash of a slot essentially represents all the account states at
+    /// that slot.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::FrozenHashVersioned`
     pub struct BankHash;
 
     #[derive(Debug)]
-    /// The root column
+    /// The root column.
+    ///
+    /// This column family persists whether a slot is a root.  Slots on the
+    /// main fork will be inserted into this column when they are finalized.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: bool
     pub struct Root;
 
     #[derive(Debug)]
     /// The index column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::Index`
     pub struct Index;
 
     #[derive(Debug)]
     /// The shred data column
+    ///
+    /// index type: (u64, u64)
+    /// value type: Vec<u8>
     pub struct ShredData;
 
     #[derive(Debug)]
     /// The shred erasure code column
+    ///
+    /// index type: (u64, u64)
+    /// value type: Vec<u8>
     pub struct ShredCode;
 
     #[derive(Debug)]
     /// The transaction status column
+    ///
+    /// index type: (u64, Signature, Slot)
+    /// value type: `generated::TransactionStatusMeta`
     pub struct TransactionStatus;
 
     #[derive(Debug)]
     /// The address signatures column
+    ///
+    /// index type: (u64, Pubkey, Slot, Signature)
+    /// value type: `blockstore_meta::AddressSignatureMeta`
     pub struct AddressSignatures;
 
     #[derive(Debug)]
     /// The transaction memos column
+    ///
+    /// index type: Signature
+    /// value type: String
     pub struct TransactionMemos;
 
     #[derive(Debug)]
-    /// The transaction status index column
+    /// The transaction status index column.
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::TransactionStatusIndexMeta`
     pub struct TransactionStatusIndex;
 
     #[derive(Debug)]
     /// The rewards column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `generated::Rewards`
     pub struct Rewards;
 
     #[derive(Debug)]
     /// The blocktime column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `UnixTimestamp`
     pub struct Blocktime;
 
     #[derive(Debug)]
     /// The performance samples column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::PerfSample`
     pub struct PerfSamples;
 
     #[derive(Debug)]
     /// The block height column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: u64
     pub struct BlockHeight;
 
     #[derive(Debug)]
     /// The program costs column
+    ///
+    /// index type: `Pubkey`
+    /// value type: `blockstore_meta::ProgramCost`
     pub struct ProgramCosts;
 
     #[derive(Debug)]
     /// The optimistic slot column
+    ///
+    /// index type: u64 (see `SlotColumn`)
+    /// value type: `blockstore_meta::OptimisticSlotMetaVersioned`
     pub struct OptimisticSlots;
 
     // When adding a new column ...
@@ -234,55 +315,6 @@ pub mod columns {
     // - Account for column in both `run_purge_with_stats()` and
     //   `compact_storage()` in ledger/src/blockstore/blockstore_purge.rs !!
     // - Account for column in `analyze_storage()` in ledger-tool/src/main.rs
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AccessType {
-    /// Primary (read/write) access; only one process can have Primary access.
-    Primary,
-    /// Primary (read/write) access with RocksDB automatic compaction disabled.
-    PrimaryForMaintenance,
-    /// Secondary (read) access; multiple processes can have Secondary access.
-    /// Additionally, Secondary access can be obtained while another process
-    /// already has Primary access.
-    Secondary,
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockstoreRecoveryMode {
-    TolerateCorruptedTailRecords,
-    AbsoluteConsistency,
-    PointInTime,
-    SkipAnyCorruptedRecord,
-}
-
-impl From<&str> for BlockstoreRecoveryMode {
-    fn from(string: &str) -> Self {
-        match string {
-            "tolerate_corrupted_tail_records" => {
-                BlockstoreRecoveryMode::TolerateCorruptedTailRecords
-            }
-            "absolute_consistency" => BlockstoreRecoveryMode::AbsoluteConsistency,
-            "point_in_time" => BlockstoreRecoveryMode::PointInTime,
-            "skip_any_corrupted_record" => BlockstoreRecoveryMode::SkipAnyCorruptedRecord,
-            bad_mode => panic!("Invalid recovery mode: {}", bad_mode),
-        }
-    }
-}
-
-impl From<BlockstoreRecoveryMode> for DBRecoveryMode {
-    fn from(brm: BlockstoreRecoveryMode) -> Self {
-        match brm {
-            BlockstoreRecoveryMode::TolerateCorruptedTailRecords => {
-                DBRecoveryMode::TolerateCorruptedTailRecords
-            }
-            BlockstoreRecoveryMode::AbsoluteConsistency => DBRecoveryMode::AbsoluteConsistency,
-            BlockstoreRecoveryMode::PointInTime => DBRecoveryMode::PointInTime,
-            BlockstoreRecoveryMode::SkipAnyCorruptedRecord => {
-                DBRecoveryMode::SkipAnyCorruptedRecord
-            }
-        }
-    }
 }
 
 #[derive(Default, Clone, Debug)]
@@ -321,7 +353,7 @@ impl Rocks {
         let access_type = options.access_type.clone();
         let recovery_mode = options.recovery_mode.clone();
 
-        fs::create_dir_all(&path)?;
+        fs::create_dir_all(path)?;
 
         // Use default database options
         if should_disable_auto_compactions(&access_type) {
@@ -342,7 +374,7 @@ impl Rocks {
                     path,
                     Self::cf_descriptors(&options, &oldest_slot),
                 )?,
-                access_type: access_type.clone(),
+                access_type,
                 oldest_slot,
                 column_options,
                 write_batch_perf_status: PerfSamplingStatus::default(),
@@ -363,70 +395,13 @@ impl Rocks {
                         &secondary_path,
                         Self::cf_descriptors(&options, &oldest_slot),
                     )?,
-                    access_type: access_type.clone(),
+                    access_type,
                     oldest_slot,
                     column_options,
                     write_batch_perf_status: PerfSamplingStatus::default(),
                 }
             }
         };
-        // This is only needed by solana-validator for LedgerCleanupService so guard with AccessType::Primary
-        if matches!(access_type, AccessType::Primary) {
-            for cf_name in Self::columns() {
-                // these special column families must be excluded from LedgerCleanupService's rocksdb
-                // compactions
-                if should_exclude_from_compaction(cf_name) {
-                    continue;
-                }
-
-                // This is the crux of our write-stall-free storage cleaning strategy with consistent
-                // state view for higher-layers
-                //
-                // For the consistent view, we commit delete_range on pruned slot range by LedgerCleanupService.
-                // simple story here.
-                //
-                // For actual storage cleaning, we employ RocksDB compaction. But default RocksDB compaction
-                // settings don't work well for us. That's because we're using it rather like a really big
-                // (100 GBs) ring-buffer. RocksDB is basically assuming uniform data write over the key space for
-                // efficient compaction, which isn't true for our use as a ring buffer.
-                //
-                // So, we customize the compaction strategy with 2 combined tweaks:
-                // (1) compaction_filter and (2) shortening its periodic cycles.
-                //
-                // Via the compaction_filter, we finally reclaim previously delete_range()-ed storage occupied
-                // by pruned slots. When compaction_filter is set, each SST files are re-compacted periodically
-                // to hunt for keys newly expired by the compaction_filter re-evaluation. But RocksDb's default
-                // `periodic_compaction_seconds` is 30 days, which is too long for our case. So, we
-                // shorten it to a day (24 hours).
-                //
-                // As we write newer SST files over time at rather consistent rate of speed, this
-                // effectively makes each newly-created sets be re-compacted for the filter at
-                // well-dispersed different timings.
-                // As a whole, we rewrite the whole dataset at every PERIODIC_COMPACTION_SECONDS,
-                // slowly over the duration of PERIODIC_COMPACTION_SECONDS. So, this results in
-                // amortization.
-                // So, there is a bit inefficiency here because we'll rewrite not-so-old SST files
-                // too. But longer period would introduce higher variance of ledger storage sizes over
-                // the long period. And it's much better than the daily IO spike caused by compact_range() by
-                // previous implementation.
-                //
-                // `ttl` and `compact_range`(`ManualCompaction`), doesn't work nicely. That's
-                // because its original intention is delete_range()s to reclaim disk space. So it tries to merge
-                // them with N+1 SST files all way down to the bottommost SSTs, often leading to vastly large amount
-                // (= all) of invalidated SST files, when combined with newer writes happening at the opposite
-                // edge of the key space. This causes a long and heavy disk IOs and possible write
-                // stall and ultimately, the deadly Replay/Banking stage stall at higher layers.
-                db.db
-                    .set_options_cf(
-                        db.cf_handle(cf_name),
-                        &[(
-                            "periodic_compaction_seconds",
-                            &format!("{}", PERIODIC_COMPACTION_SECONDS),
-                        )],
-                    )
-                    .unwrap();
-            }
-        }
 
         Ok(db)
     }
@@ -507,13 +482,46 @@ impl Rocks {
         Ok(opt)
     }
 
+    fn get_pinned_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Result<Option<DBPinnableSlice>> {
+        let opt = self.db.get_pinned_cf(cf, key)?;
+        Ok(opt)
+    }
+
     fn put_cf(&self, cf: &ColumnFamily, key: &[u8], value: &[u8]) -> Result<()> {
         self.db.put_cf(cf, key, value)?;
         Ok(())
     }
 
+    fn multi_get_cf(
+        &self,
+        cf: &ColumnFamily,
+        keys: Vec<&[u8]>,
+    ) -> Vec<Result<Option<DBPinnableSlice>>> {
+        let values = self
+            .db
+            .batched_multi_get_cf(cf, keys, false)
+            .into_iter()
+            .map(|result| match result {
+                Ok(opt) => Ok(opt),
+                Err(e) => Err(BlockstoreError::RocksDb(e)),
+            })
+            .collect::<Vec<_>>();
+        values
+    }
+
     fn delete_cf(&self, cf: &ColumnFamily, key: &[u8]) -> Result<()> {
         self.db.delete_cf(cf, key)?;
+        Ok(())
+    }
+
+    /// Delete files whose slot range is within \[`from`, `to`\].
+    fn delete_file_in_range_cf(
+        &self,
+        cf: &ColumnFamily,
+        from_key: &[u8],
+        to_key: &[u8],
+    ) -> Result<()> {
+        self.db.delete_file_in_range_cf(cf, from_key, to_key)?;
         Ok(())
     }
 
@@ -549,12 +557,10 @@ impl Rocks {
         let result = self.db.write(batch);
         if let Some(op_start_instant) = op_start_instant {
             report_rocksdb_write_perf(
+                PERF_METRIC_OP_NAME_WRITE_BATCH, // We use write_batch as cf_name for write batch.
+                PERF_METRIC_OP_NAME_WRITE_BATCH, // op_name
                 &op_start_instant.elapsed(),
-                rocksdb_metric_header!(
-                    "blockstore_rocksdb_write_perf,op=write_batch",
-                    "write_batch",
-                    self.column_options
-                ),
+                &self.column_options,
             );
         }
         match result {
@@ -573,10 +579,17 @@ impl Rocks {
     ///
     /// Full list of properties that return int values could be found
     /// [here](https://github.com/facebook/rocksdb/blob/08809f5e6cd9cc4bc3958dd4d59457ae78c76660/include/rocksdb/db.h#L654-L689).
-    fn get_int_property_cf(&self, cf: &ColumnFamily, name: &str) -> Result<i64> {
+    fn get_int_property_cf(&self, cf: &ColumnFamily, name: &'static std::ffi::CStr) -> Result<i64> {
         match self.db.property_int_value_cf(cf, name) {
             Ok(Some(value)) => Ok(value.try_into().unwrap()),
             Ok(None) => Ok(0),
+            Err(e) => Err(BlockstoreError::RocksDb(e)),
+        }
+    }
+
+    fn live_files_metadata(&self) -> Result<Vec<LiveFile>> {
+        match self.db.live_files() {
+            Ok(live_files) => Ok(live_files),
             Err(e) => Err(BlockstoreError::RocksDb(e)),
         }
     }
@@ -624,26 +637,37 @@ pub trait ProtobufColumn: Column {
     type Type: prost::Message + Default;
 }
 
+/// SlotColumn is a trait for slot-based column families.  Its index is
+/// essentially Slot (or more generally speaking, has a 1:1 mapping to Slot).
+///
+/// The clean-up of any LedgerColumn that implements SlotColumn is managed by
+/// [`LedgerCleanupService`], which will periodically deprecate and purge
+/// oldest entries that are older than the latest root in order to maintain the
+/// configured --limit-ledger-size under the validator argument.
 pub trait SlotColumn<Index = u64> {}
 
 impl<T: SlotColumn> Column for T {
     type Index = u64;
 
+    /// Converts a u64 Index to its RocksDB key.
     fn key(slot: u64) -> Vec<u8> {
         let mut key = vec![0; 8];
         BigEndian::write_u64(&mut key[..], slot);
         key
     }
 
+    /// Converts a RocksDB key to its u64 Index.
     fn index(key: &[u8]) -> u64 {
         BigEndian::read_u64(&key[..8])
     }
 
+    /// Obtains the primary index from the specified index.
     fn primary_index(index: u64) -> Slot {
         index
     }
 
     #[allow(clippy::wrong_self_convention)]
+    /// Converts a Slot to its u64 Index.
     fn as_index(slot: Slot) -> u64 {
         slot
     }
@@ -1013,7 +1037,7 @@ pub struct Database {
 #[derive(Debug)]
 pub struct LedgerColumn<C>
 where
-    C: Column + ColumnName + ColumnMetrics,
+    C: Column + ColumnName,
 {
     backend: Arc<Rocks>,
     column: PhantomData<C>,
@@ -1022,7 +1046,7 @@ where
     write_perf_status: PerfSamplingStatus,
 }
 
-impl<C: Column + ColumnName + ColumnMetrics> LedgerColumn<C> {
+impl<C: Column + ColumnName> LedgerColumn<C> {
     pub fn submit_rocksdb_cf_metrics(&self) {
         let cf_rocksdb_metrics = BlockstoreRocksDbColumnFamilyMetrics {
             total_sst_files_size: self
@@ -1074,137 +1098,13 @@ impl<C: Column + ColumnName + ColumnMetrics> LedgerColumn<C> {
                 .get_int_property(RocksProperties::BACKGROUND_ERRORS)
                 .unwrap_or(BLOCKSTORE_METRICS_ERROR),
         };
-        C::report_cf_metrics(cf_rocksdb_metrics, &self.column_options);
+        cf_rocksdb_metrics.report_metrics(C::NAME, &self.column_options);
     }
 }
 
 pub struct WriteBatch<'a> {
     write_batch: RWriteBatch,
     map: HashMap<&'static str, &'a ColumnFamily>,
-}
-
-#[derive(Debug, Clone)]
-pub enum ShredStorageType {
-    // Stores shreds under RocksDB's default compaction (level).
-    RocksLevel,
-    // (Experimental) Stores shreds under RocksDB's FIFO compaction which
-    // allows ledger store to reclaim storage more efficiently with
-    // lower I/O overhead.
-    RocksFifo(BlockstoreRocksFifoOptions),
-}
-
-impl Default for ShredStorageType {
-    fn default() -> Self {
-        Self::RocksLevel
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockstoreCompressionType {
-    None,
-    Snappy,
-    Lz4,
-    Zlib,
-}
-
-impl Default for BlockstoreCompressionType {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl BlockstoreCompressionType {
-    fn to_rocksdb_compression_type(&self) -> RocksCompressionType {
-        match self {
-            Self::None => RocksCompressionType::None,
-            Self::Snappy => RocksCompressionType::Snappy,
-            Self::Lz4 => RocksCompressionType::Lz4,
-            Self::Zlib => RocksCompressionType::Zlib,
-        }
-    }
-}
-
-/// Options for LedgerColumn.
-/// Each field might also be used as a tag that supports group-by operation when
-/// reporting metrics.
-#[derive(Debug, Clone)]
-pub struct LedgerColumnOptions {
-    // Determine how to store both data and coding shreds. Default: RocksLevel.
-    pub shred_storage_type: ShredStorageType,
-
-    // Determine the way to compress column families which are eligible for
-    // compression.
-    pub compression_type: BlockstoreCompressionType,
-
-    // Control how often RocksDB read/write performance samples are collected.
-    // If the value is greater than 0, then RocksDB read/write perf sample
-    // will be collected once for every `rocks_perf_sample_interval` ops.
-    pub rocks_perf_sample_interval: usize,
-}
-
-impl Default for LedgerColumnOptions {
-    fn default() -> Self {
-        Self {
-            shred_storage_type: ShredStorageType::RocksLevel,
-            compression_type: BlockstoreCompressionType::default(),
-            rocks_perf_sample_interval: 0,
-        }
-    }
-}
-
-pub struct BlockstoreOptions {
-    // The access type of blockstore. Default: Primary
-    pub access_type: AccessType,
-    // Whether to open a blockstore under a recovery mode. Default: None.
-    pub recovery_mode: Option<BlockstoreRecoveryMode>,
-    // Whether to allow unlimited number of open files. Default: true.
-    pub enforce_ulimit_nofile: bool,
-    pub column_options: LedgerColumnOptions,
-}
-
-impl Default for BlockstoreOptions {
-    /// The default options are the values used by [`Blockstore::open`].
-    fn default() -> Self {
-        Self {
-            access_type: AccessType::Primary,
-            recovery_mode: None,
-            enforce_ulimit_nofile: true,
-            column_options: LedgerColumnOptions::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct BlockstoreRocksFifoOptions {
-    // The maximum storage size for storing data shreds in column family
-    // [`cf::DataShred`].  Typically, data shreds contribute around 25% of the
-    // ledger store storage size if the RPC service is enabled, or 50% if RPC
-    // service is not enabled.
-    //
-    // Note that this number must be greater than FIFO_WRITE_BUFFER_SIZE
-    // otherwise we won't be able to write any file.  If not, the blockstore
-    // will panic.
-    pub shred_data_cf_size: u64,
-    // The maximum storage size for storing coding shreds in column family
-    // [`cf::CodeShred`].  Typically, coding shreds contribute around 20% of the
-    // ledger store storage size if the RPC service is enabled, or 40% if RPC
-    // service is not enabled.
-    //
-    // Note that this number must be greater than FIFO_WRITE_BUFFER_SIZE
-    // otherwise we won't be able to write any file.  If not, the blockstore
-    // will panic.
-    pub shred_code_cf_size: u64,
-}
-
-impl Default for BlockstoreRocksFifoOptions {
-    fn default() -> Self {
-        Self {
-            // Maximum size of cf::ShredData.
-            shred_data_cf_size: DEFAULT_FIFO_COMPACTION_DATA_CF_SIZE,
-            // Maximum size of cf::ShredCode.
-            shred_code_cf_size: DEFAULT_FIFO_COMPACTION_CODING_CF_SIZE,
-        }
-    }
 }
 
 impl Database {
@@ -1229,9 +1129,11 @@ impl Database {
     where
         C: TypedColumn + ColumnName,
     {
-        if let Some(serialized_value) = self.backend.get_cf(self.cf_handle::<C>(), &C::key(key))? {
-            let value = deserialize(&serialized_value)?;
-
+        if let Some(pinnable_slice) = self
+            .backend
+            .get_pinned_cf(self.cf_handle::<C>(), &C::key(key))?
+        {
+            let value = deserialize(pinnable_slice.as_ref())?;
             Ok(Some(value))
         } else {
             Ok(None)
@@ -1247,7 +1149,10 @@ impl Database {
     {
         let cf = self.cf_handle::<C>();
         let iter = self.backend.iterator_cf::<C>(cf, iterator_mode);
-        Ok(iter.map(|(key, value)| (C::index(&key), value)))
+        Ok(iter.map(|pair| {
+            let (key, value) = pair.unwrap();
+            (C::index(&key), value)
+        }))
     }
 
     #[inline]
@@ -1260,7 +1165,7 @@ impl Database {
 
     pub fn column<C>(&self) -> LedgerColumn<C>
     where
-        C: Column + ColumnName + ColumnMetrics,
+        C: Column + ColumnName,
     {
         LedgerColumn {
             backend: Arc::clone(&self.backend),
@@ -1294,15 +1199,35 @@ impl Database {
         Ok(fs_extra::dir::get_size(&self.path)?)
     }
 
-    // Adds a range to delete to the given write batch
+    /// Adds a \[`from`, `to`\] range that deletes all entries between the `from` slot
+    /// and `to` slot inclusively.  If `from` slot and `to` slot are the same, then all
+    /// entries in that slot will be removed.
+    ///
     pub fn delete_range_cf<C>(&self, batch: &mut WriteBatch, from: Slot, to: Slot) -> Result<()>
     where
         C: Column + ColumnName,
     {
         let cf = self.cf_handle::<C>();
+        // Note that the default behavior of rocksdb's delete_range_cf deletes
+        // files within [from, to), while our purge logic applies to [from, to].
+        //
+        // For consistency, we make our delete_range_cf works for [from, to] by
+        // adjusting the `to` slot range by 1.
         let from_index = C::as_index(from);
-        let to_index = C::as_index(to);
+        let to_index = C::as_index(to.saturating_add(1));
         batch.delete_range_cf::<C>(cf, from_index, to_index)
+    }
+
+    /// Delete files whose slot range is within \[`from`, `to`\].
+    pub fn delete_file_in_range_cf<C>(&self, from: Slot, to: Slot) -> Result<()>
+    where
+        C: Column + ColumnName,
+    {
+        self.backend.delete_file_in_range_cf(
+            self.cf_handle::<C>(),
+            &C::key(C::as_index(from)),
+            &C::key(C::as_index(to)),
+        )
     }
 
     pub fn is_primary_access(&self) -> bool {
@@ -1312,11 +1237,15 @@ impl Database {
     pub fn set_oldest_slot(&self, oldest_slot: Slot) {
         self.backend.oldest_slot.set(oldest_slot);
     }
+
+    pub fn live_files_metadata(&self) -> Result<Vec<LiveFile>> {
+        self.backend.live_files_metadata()
+    }
 }
 
 impl<C> LedgerColumn<C>
 where
-    C: Column + ColumnName + ColumnMetrics,
+    C: Column + ColumnName,
 {
     pub fn get_bytes(&self, key: C::Index) -> Result<Option<Vec<u8>>> {
         let is_perf_enabled = maybe_enable_rocksdb_perf(
@@ -1326,11 +1255,47 @@ where
         let result = self.backend.get_cf(self.handle(), &C::key(key));
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_read_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_GET,
                 &op_start_instant.elapsed(),
-                C::rocksdb_get_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
         result
+    }
+
+    pub fn multi_get_bytes(&self, keys: Vec<C::Index>) -> Vec<Result<Option<Vec<u8>>>> {
+        let rocks_keys: Vec<_> = keys.into_iter().map(|key| C::key(key)).collect();
+        {
+            let ref_rocks_keys: Vec<_> = rocks_keys.iter().map(|k| &k[..]).collect();
+            let is_perf_enabled = maybe_enable_rocksdb_perf(
+                self.column_options.rocks_perf_sample_interval,
+                &self.read_perf_status,
+            );
+            let result = self
+                .backend
+                .multi_get_cf(self.handle(), ref_rocks_keys)
+                .into_iter()
+                .map(|r| match r {
+                    Ok(opt) => match opt {
+                        Some(pinnable_slice) => Ok(Some(pinnable_slice.as_ref().to_vec())),
+                        None => Ok(None),
+                    },
+                    Err(e) => Err(e),
+                })
+                .collect::<Vec<Result<Option<_>>>>();
+            if let Some(op_start_instant) = is_perf_enabled {
+                // use multi-get instead
+                report_rocksdb_read_perf(
+                    C::NAME,
+                    PERF_METRIC_OP_NAME_MULTI_GET,
+                    &op_start_instant.elapsed(),
+                    &self.column_options,
+                );
+            }
+
+            result
+        }
     }
 
     pub fn iter(
@@ -1339,7 +1304,10 @@ where
     ) -> Result<impl Iterator<Item = (C::Index, Box<[u8]>)> + '_> {
         let cf = self.handle();
         let iter = self.backend.iterator_cf::<C>(cf, iterator_mode);
-        Ok(iter.map(|(key, value)| (C::index(&key), value)))
+        Ok(iter.map(|pair| {
+            let (key, value) = pair.unwrap();
+            (C::index(&key), value)
+        }))
     }
 
     pub fn delete_slot(
@@ -1407,8 +1375,10 @@ where
         let result = self.backend.put_cf(self.handle(), &C::key(key), value);
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_write_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_PUT,
                 &op_start_instant.elapsed(),
-                C::rocksdb_put_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
         result
@@ -1419,31 +1389,66 @@ where
     ///
     /// Full list of properties that return int values could be found
     /// [here](https://github.com/facebook/rocksdb/blob/08809f5e6cd9cc4bc3958dd4d59457ae78c76660/include/rocksdb/db.h#L654-L689).
-    pub fn get_int_property(&self, name: &str) -> Result<i64> {
+    pub fn get_int_property(&self, name: &'static std::ffi::CStr) -> Result<i64> {
         self.backend.get_int_property_cf(self.handle(), name)
     }
 }
 
 impl<C> LedgerColumn<C>
 where
-    C: TypedColumn + ColumnName + ColumnMetrics,
+    C: TypedColumn + ColumnName,
 {
+    pub fn multi_get(&self, keys: Vec<C::Index>) -> Vec<Result<Option<C::Type>>> {
+        let rocks_keys: Vec<_> = keys.into_iter().map(|key| C::key(key)).collect();
+        {
+            let ref_rocks_keys: Vec<_> = rocks_keys.iter().map(|k| &k[..]).collect();
+            let is_perf_enabled = maybe_enable_rocksdb_perf(
+                self.column_options.rocks_perf_sample_interval,
+                &self.read_perf_status,
+            );
+            let result = self
+                .backend
+                .multi_get_cf(self.handle(), ref_rocks_keys)
+                .into_iter()
+                .map(|r| match r {
+                    Ok(opt) => match opt {
+                        Some(pinnable_slice) => Ok(Some(deserialize(pinnable_slice.as_ref())?)),
+                        None => Ok(None),
+                    },
+                    Err(e) => Err(e),
+                })
+                .collect::<Vec<Result<Option<_>>>>();
+            if let Some(op_start_instant) = is_perf_enabled {
+                // use multi-get instead
+                report_rocksdb_read_perf(
+                    C::NAME,
+                    PERF_METRIC_OP_NAME_MULTI_GET,
+                    &op_start_instant.elapsed(),
+                    &self.column_options,
+                );
+            }
+
+            result
+        }
+    }
+
     pub fn get(&self, key: C::Index) -> Result<Option<C::Type>> {
         let mut result = Ok(None);
         let is_perf_enabled = maybe_enable_rocksdb_perf(
             self.column_options.rocks_perf_sample_interval,
             &self.read_perf_status,
         );
-        if let Some(serialized_value) = self.backend.get_cf(self.handle(), &C::key(key))? {
-            let value = deserialize(&serialized_value)?;
-
+        if let Some(pinnable_slice) = self.backend.get_pinned_cf(self.handle(), &C::key(key))? {
+            let value = deserialize(pinnable_slice.as_ref())?;
             result = Ok(Some(value))
         }
 
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_read_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_GET,
                 &op_start_instant.elapsed(),
-                C::rocksdb_get_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
         result
@@ -1462,8 +1467,10 @@ where
 
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_write_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_PUT,
                 &op_start_instant.elapsed(),
-                C::rocksdb_put_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
         result
@@ -1477,8 +1484,10 @@ where
         let result = self.backend.delete_cf(self.handle(), &C::key(key));
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_write_perf(
+                C::NAME,
+                "delete",
                 &op_start_instant.elapsed(),
-                C::rocksdb_delete_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
         result
@@ -1487,7 +1496,7 @@ where
 
 impl<C> LedgerColumn<C>
 where
-    C: ProtobufColumn + ColumnName + ColumnMetrics,
+    C: ProtobufColumn + ColumnName,
 {
     pub fn get_protobuf_or_bincode<T: DeserializeOwned + Into<C::Type>>(
         &self,
@@ -1497,18 +1506,20 @@ where
             self.column_options.rocks_perf_sample_interval,
             &self.read_perf_status,
         );
-        let result = self.backend.get_cf(self.handle(), &C::key(key));
+        let result = self.backend.get_pinned_cf(self.handle(), &C::key(key));
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_read_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_GET,
                 &op_start_instant.elapsed(),
-                C::rocksdb_get_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
 
-        if let Some(serialized_value) = result? {
-            let value = match C::Type::decode(&serialized_value[..]) {
+        if let Some(pinnable_slice) = result? {
+            let value = match C::Type::decode(pinnable_slice.as_ref()) {
                 Ok(value) => value,
-                Err(_) => deserialize::<T>(&serialized_value)?.into(),
+                Err(_) => deserialize::<T>(pinnable_slice.as_ref())?.into(),
             };
             Ok(Some(value))
         } else {
@@ -1521,16 +1532,18 @@ where
             self.column_options.rocks_perf_sample_interval,
             &self.read_perf_status,
         );
-        let result = self.backend.get_cf(self.handle(), &C::key(key));
+        let result = self.backend.get_pinned_cf(self.handle(), &C::key(key));
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_read_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_GET,
                 &op_start_instant.elapsed(),
-                C::rocksdb_get_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
 
-        if let Some(serialized_value) = result? {
-            Ok(Some(C::Type::decode(&serialized_value[..])?))
+        if let Some(pinnable_slice) = result? {
+            Ok(Some(C::Type::decode(pinnable_slice.as_ref())?))
         } else {
             Ok(None)
         }
@@ -1547,8 +1560,10 @@ where
         let result = self.backend.put_cf(self.handle(), &C::key(key), &buf);
         if let Some(op_start_instant) = is_perf_enabled {
             report_rocksdb_write_perf(
+                C::NAME,
+                PERF_METRIC_OP_NAME_PUT,
                 &op_start_instant.elapsed(),
-                C::rocksdb_put_perf_metric_header(&self.column_options),
+                &self.column_options,
             );
         }
 
@@ -1584,11 +1599,17 @@ impl<'a> WriteBatch<'a> {
         self.map[C::NAME]
     }
 
-    pub fn delete_range_cf<C: Column>(
+    /// Adds a \[`from`, `to`) range deletion entry to the batch.
+    ///
+    /// Note that the \[`from`, `to`) deletion range of WriteBatch::delete_range_cf
+    /// is different from \[`from`, `to`\] of Database::delete_range_cf as we makes
+    /// the semantics of Database::delete_range_cf matches the blockstore purge
+    /// logic.
+    fn delete_range_cf<C: Column>(
         &mut self,
         cf: &ColumnFamily,
         from: C::Index,
-        to: C::Index,
+        to: C::Index, // exclusive
     ) -> Result<()> {
         self.write_batch
             .delete_range_cf(cf, C::key(from), C::key(to));

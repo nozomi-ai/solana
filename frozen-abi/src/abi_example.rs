@@ -411,7 +411,7 @@ lazy_static! {
 impl AbiExample for &Vec<u8> {
     fn example() -> Self {
         info!("AbiExample for (&Vec<u8>): {}", type_name::<Self>());
-        &*VEC_U8
+        &VEC_U8
     }
 }
 
@@ -553,5 +553,11 @@ impl<O: AbiEnumVisitor, E: AbiEnumVisitor> AbiEnumVisitor for Result<O, E> {
         variant.serialize(digester.create_enum_child()?)?;
 
         digester.create_child()
+    }
+}
+
+impl<T: AbiExample> AbiExample for once_cell::sync::OnceCell<T> {
+    fn example() -> Self {
+        Self::with_value(T::example())
     }
 }

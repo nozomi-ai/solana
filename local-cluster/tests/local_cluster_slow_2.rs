@@ -115,7 +115,7 @@ fn test_consistency_halt() {
     warn!("adding a validator");
     cluster.add_validator(
         &validator_snapshot_test_config.validator_config,
-        validator_stake as u64,
+        validator_stake,
         Arc::new(Keypair::new()),
         None,
         SocketAddrSpace::Unspecified,
@@ -192,6 +192,7 @@ fn test_leader_failure_4() {
             .config
             .validator_exit,
         &local.funding_keypair,
+        &local.connection_cache,
         num_nodes,
         config.ticks_per_slot * config.poh_config.target_tick_duration.as_millis() as u64,
         SocketAddrSpace::Unspecified,
@@ -225,6 +226,7 @@ fn test_ledger_cleanup_service() {
         num_nodes,
         HashSet::new(),
         SocketAddrSpace::Unspecified,
+        &cluster.connection_cache,
     );
     cluster.close_preserve_ledgers();
     //check everyone's ledgers and make sure only ~100 slots are stored
@@ -365,7 +367,7 @@ fn test_slot_hash_expiry() {
         // Get rid of any slots past common_ancestor_slot
         info!("Removing extra slots from B's blockstore");
         let blockstore = open_blockstore(&b_ledger_path);
-        purge_slots(&blockstore, common_ancestor_slot + 1, 100);
+        purge_slots_with_count(&blockstore, common_ancestor_slot + 1, 100);
     }
 
     info!(
@@ -435,6 +437,7 @@ fn test_slot_hash_expiry() {
     cluster_tests::check_for_new_roots(
         16,
         &[cluster.get_contact_info(&a_pubkey).unwrap().clone()],
+        &cluster.connection_cache,
         "test_slot_hashes_expiry",
     );
 }
