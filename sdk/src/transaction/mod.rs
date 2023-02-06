@@ -707,7 +707,7 @@ impl Transaction {
     /// ```
     pub fn sign<T: Signers>(&mut self, keypairs: &T, recent_blockhash: Hash) {
         if let Err(e) = self.try_sign(keypairs, recent_blockhash) {
-            panic!("Transaction::sign failed with error {:?}", e);
+            panic!("Transaction::sign failed with error {e:?}");
         }
     }
 
@@ -733,7 +733,7 @@ impl Transaction {
     /// conditions.
     pub fn partial_sign<T: Signers>(&mut self, keypairs: &T, recent_blockhash: Hash) {
         if let Err(e) = self.try_partial_sign(keypairs, recent_blockhash) {
-            panic!("Transaction::partial_sign failed with error {:?}", e);
+            panic!("Transaction::partial_sign failed with error {e:?}");
         }
     }
 
@@ -757,10 +757,7 @@ impl Transaction {
         recent_blockhash: Hash,
     ) {
         if let Err(e) = self.try_partial_sign_unchecked(keypairs, positions, recent_blockhash) {
-            panic!(
-                "Transaction::partial_sign_unchecked failed with error {:?}",
-                e
-            );
+            panic!("Transaction::partial_sign_unchecked failed with error {e:?}");
         }
     }
 
@@ -1273,12 +1270,12 @@ mod tests {
             62, 89, 99,
         ])
         .unwrap();
-        let to = Pubkey::new(&[
+        let to = Pubkey::from([
             1, 1, 1, 4, 5, 6, 7, 8, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 8, 7, 6, 5, 4,
             1, 1, 1,
         ]);
 
-        let program_id = Pubkey::new(&[
+        let program_id = Pubkey::from([
             2, 2, 2, 4, 5, 6, 7, 8, 9, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 9, 8, 7, 6, 5, 4,
             2, 2, 2,
         ]);

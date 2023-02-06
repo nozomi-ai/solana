@@ -9,7 +9,7 @@ use {
     solana_gossip::cluster_info::{ClusterInfo, MAX_SNAPSHOT_HASHES},
     solana_measure::{measure, measure::Measure},
     solana_runtime::{
-        accounts_hash::{CalcAccountsHashConfig, HashStats},
+        accounts_hash::{AccountsHash, CalcAccountsHashConfig, HashStats},
         epoch_accounts_hash::EpochAccountsHash,
         snapshot_config::SnapshotConfig,
         snapshot_package::{
@@ -19,7 +19,7 @@ use {
         sorted_storages::SortedStorages,
     },
     solana_sdk::{
-        clock::{Slot, SLOT_MS},
+        clock::{Slot, DEFAULT_MS_PER_SLOT},
         hash::Hash,
         pubkey::Pubkey,
     },
@@ -48,10 +48,10 @@ impl AccountsHashVerifier {
         known_validators: Option<HashSet<Pubkey>>,
         halt_on_known_validators_accounts_hash_mismatch: bool,
         fault_injection_rate_slots: u64,
-        snapshot_config: Option<SnapshotConfig>,
+        snapshot_config: SnapshotConfig,
     ) -> Self {
         // If there are no accounts packages to process, limit how often we re-check
-        const LOOP_LIMITER: Duration = Duration::from_millis(SLOT_MS);
+        const LOOP_LIMITER: Duration = Duration::from_millis(DEFAULT_MS_PER_SLOT);
         let exit = exit.clone();
         let cluster_info = cluster_info.clone();
         let t_accounts_hash_verifier = Builder::new()
@@ -83,7 +83,7 @@ impl AccountsHashVerifier {
                             &mut hashes,
                             &exit,
                             fault_injection_rate_slots,
-                            snapshot_config.as_ref(),
+                            &snapshot_config,
                         ));
 
                         datapoint_info!(
@@ -184,7 +184,7 @@ impl AccountsHashVerifier {
         hashes: &mut Vec<(Slot, Hash)>,
         exit: &Arc<AtomicBool>,
         fault_injection_rate_slots: u64,
-        snapshot_config: Option<&SnapshotConfig>,
+        snapshot_config: &SnapshotConfig,
     ) {
         let accounts_hash = Self::calculate_and_verify_accounts_hash(&accounts_package);
 
@@ -210,7 +210,7 @@ impl AccountsHashVerifier {
     }
 
     /// returns calculated accounts hash
-    fn calculate_and_verify_accounts_hash(accounts_package: &AccountsPackage) -> Hash {
+    fn calculate_and_verify_accounts_hash(accounts_package: &AccountsPackage) -> AccountsHash {
         let mut measure_hash = Measure::start("hash");
         let mut sort_time = Measure::start("sort_storages");
         let sorted_storages = SortedStorages::new(&accounts_package.snapshot_storages);
@@ -233,7 +233,6 @@ impl AccountsHashVerifier {
                     epoch_schedule: &accounts_package.epoch_schedule,
                     rent_collector: &accounts_package.rent_collector,
                     store_detailed_debug_info_on_failure: false,
-                    full_snapshot: None,
                 },
                 &sorted_storages,
                 timings,
@@ -255,7 +254,6 @@ impl AccountsHashVerifier {
                         epoch_schedule: &accounts_package.epoch_schedule,
                         rent_collector: &accounts_package.rent_collector,
                         store_detailed_debug_info_on_failure: false,
-                        full_snapshot: None,
                     },
                 );
             info!(
@@ -274,7 +272,6 @@ impl AccountsHashVerifier {
                         rent_collector: &accounts_package.rent_collector,
                         // now that we've failed, store off the failing contents that produced a bad capitalization
                         store_detailed_debug_info_on_failure: true,
-                        full_snapshot: None,
                     },
                     &sorted_storages,
                     HashStats::default(),
@@ -313,13 +310,13 @@ impl AccountsHashVerifier {
         accounts_hash
     }
 
-    fn save_epoch_accounts_hash(accounts_package: &AccountsPackage, accounts_hash: Hash) {
+    fn save_epoch_accounts_hash(accounts_package: &AccountsPackage, accounts_hash: AccountsHash) {
         if accounts_package.package_type == AccountsPackageType::EpochAccountsHash {
             info!(
                 "saving epoch accounts hash, slot: {}, hash: {}",
-                accounts_package.slot, accounts_hash
+                accounts_package.slot, accounts_hash.0,
             );
-            let epoch_accounts_hash = EpochAccountsHash::new(accounts_hash);
+            let epoch_accounts_hash = EpochAccountsHash::from(accounts_hash);
             accounts_package
                 .accounts
                 .accounts_db
@@ -346,17 +343,17 @@ impl AccountsHashVerifier {
         hashes: &mut Vec<(Slot, Hash)>,
         exit: &Arc<AtomicBool>,
         fault_injection_rate_slots: u64,
-        accounts_hash: Hash,
+        accounts_hash: AccountsHash,
     ) {
         if fault_injection_rate_slots != 0
             && accounts_package.slot % fault_injection_rate_slots == 0
         {
             // For testing, publish an invalid hash to gossip.
-            let fault_hash = Self::generate_fault_hash(&accounts_hash);
+            let fault_hash = Self::generate_fault_hash(&accounts_hash.0);
             warn!("inserting fault at slot: {}", accounts_package.slot);
             hashes.push((accounts_package.slot, fault_hash));
         } else {
-            hashes.push((accounts_package.slot, accounts_hash));
+            hashes.push((accounts_package.slot, accounts_hash.0));
         }
 
         retain_max_n_elements(hashes, MAX_SNAPSHOT_HASHES);
@@ -377,13 +374,11 @@ impl AccountsHashVerifier {
     fn submit_for_packaging(
         accounts_package: AccountsPackage,
         pending_snapshot_package: Option<&PendingSnapshotPackage>,
-        snapshot_config: Option<&SnapshotConfig>,
-        accounts_hash: Hash,
+        snapshot_config: &SnapshotConfig,
+        accounts_hash: AccountsHash,
     ) {
         if pending_snapshot_package.is_none()
-            || !snapshot_config
-                .map(|snapshot_config| snapshot_config.should_generate_snapshots())
-                .unwrap_or(false)
+            || !snapshot_config.should_generate_snapshots()
             || !matches!(
                 accounts_package.package_type,
                 AccountsPackageType::Snapshot(_)
@@ -469,29 +464,28 @@ mod tests {
     use {
         super::*,
         rand::seq::SliceRandom,
-        solana_gossip::{cluster_info::make_accounts_hashes_message, contact_info::ContactInfo},
+        solana_gossip::{
+            cluster_info::make_accounts_hashes_message,
+            legacy_contact_info::LegacyContactInfo as ContactInfo,
+        },
         solana_sdk::{
             hash::hash,
             signature::{Keypair, Signer},
+            timing::timestamp,
         },
         solana_streamer::socket::SocketAddrSpace,
         std::str::FromStr,
     };
 
-    fn new_test_cluster_info(contact_info: ContactInfo) -> ClusterInfo {
-        ClusterInfo::new(
-            contact_info,
-            Arc::new(Keypair::new()),
-            SocketAddrSpace::Unspecified,
-        )
+    fn new_test_cluster_info() -> ClusterInfo {
+        let keypair = Arc::new(Keypair::new());
+        let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), timestamp());
+        ClusterInfo::new(contact_info, keypair, SocketAddrSpace::Unspecified)
     }
 
     #[test]
     fn test_should_halt() {
-        let keypair = Keypair::new();
-
-        let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), 0);
-        let cluster_info = new_test_cluster_info(contact_info);
+        let cluster_info = new_test_cluster_info();
         let cluster_info = Arc::new(cluster_info);
 
         let mut known_validators = HashSet::new();
@@ -522,10 +516,7 @@ mod tests {
     #[test]
     fn test_max_hashes() {
         solana_logger::setup();
-        let keypair = Keypair::new();
-
-        let contact_info = ContactInfo::new_localhost(&keypair.pubkey(), 0);
-        let cluster_info = new_test_cluster_info(contact_info);
+        let cluster_info = new_test_cluster_info();
         let cluster_info = Arc::new(cluster_info);
 
         let known_validators = HashSet::new();
@@ -555,7 +546,7 @@ mod tests {
                 &mut hashes,
                 &exit,
                 0,
-                Some(&snapshot_config),
+                &snapshot_config,
             );
 
             // sleep for 1ms to create a newer timestamp for gossip entry
@@ -564,7 +555,7 @@ mod tests {
         }
         cluster_info.flush_push_queue();
         let cluster_hashes = cluster_info
-            .get_accounts_hash_for_node(&keypair.pubkey(), |c| c.clone())
+            .get_accounts_hash_for_node(&cluster_info.id(), |c| c.clone())
             .unwrap();
         info!("{:?}", cluster_hashes);
         assert_eq!(hashes.len(), MAX_SNAPSHOT_HASHES);

@@ -3,8 +3,9 @@ use {
         accounts::Accounts,
         accounts_db::{
             AccountShrinkThreshold, AccountStorageEntry, AccountsDb, AccountsDbConfig, AppendVecId,
-            AtomicAppendVecId, BankHashInfo, IndexGenerationInfo, SnapshotStorage,
+            AtomicAppendVecId, BankHashStats, IndexGenerationInfo,
         },
+        accounts_hash::{AccountsDeltaHash, AccountsHash},
         accounts_index::AccountSecondaryIndexes,
         accounts_update_notifier_interface::AccountsUpdateNotifier,
         append_vec::{AppendVec, StoredMetaWriteVersion},
@@ -65,7 +66,7 @@ pub(crate) enum SerdeStyle {
 
 const MAX_STREAM_SIZE: u64 = 32 * 1024 * 1024 * 1024;
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, AbiExample, PartialEq, Eq)]
+#[derive(Clone, Debug, Deserialize, Serialize, AbiExample, PartialEq, Eq)]
 pub struct AccountsDbFields<T>(
     HashMap<Slot, Vec<T>>,
     StoredMetaWriteVersion,
@@ -78,6 +79,13 @@ pub struct AccountsDbFields<T>(
     #[serde(deserialize_with = "default_on_eof")]
     Vec<(Slot, Hash)>,
 );
+
+#[derive(Clone, Default, Debug, Serialize, Deserialize, PartialEq, Eq, AbiExample)]
+struct BankHashInfo {
+    accounts_delta_hash: AccountsDeltaHash,
+    accounts_hash: AccountsHash,
+    stats: BankHashStats,
+}
 
 /// Helper type to wrap BufReader streams when deserializing and reconstructing from either just a
 /// full snapshot, or both a full and incremental snapshot
@@ -192,7 +200,7 @@ trait TypeContext<'a>: PartialEq {
     fn reserialize_bank_fields_with_hash<R, W>(
         stream_reader: &mut BufReader<R>,
         stream_writer: &mut BufWriter<W>,
-        accounts_hash: &Hash,
+        accounts_hash: &AccountsHash,
         incremental_snapshot_persistence: Option<&BankIncrementalSnapshotPersistence>,
     ) -> std::result::Result<(), Box<bincode::ErrorKind>>
     where
@@ -280,14 +288,8 @@ pub(crate) fn fields_from_streams<R: Read>(
         .as_mut()
         .map(|stream| fields_from_stream(serde_style, stream))
         .transpose()?;
-
-    // Option::unzip() not stabilized yet
     let (incremental_snapshot_bank_fields, incremental_snapshot_accounts_db_fields) =
-        if let Some((bank_fields, accounts_fields)) = incremental_fields {
-            (Some(bank_fields), Some(accounts_fields))
-        } else {
-            (None, None)
-        };
+        incremental_fields.unzip();
 
     let snapshot_accounts_db_fields = SnapshotAccountsDbFields {
         full_snapshot_accounts_db_fields,
@@ -310,7 +312,6 @@ pub(crate) fn bank_from_streams<R>(
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&Builtins>,
     account_secondary_indexes: AccountSecondaryIndexes,
-    caching_enabled: bool,
     limit_load_slot_count_from_snapshot: Option<usize>,
     shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
@@ -332,7 +333,6 @@ where
         debug_keys,
         additional_builtins,
         account_secondary_indexes,
-        caching_enabled,
         limit_load_slot_count_from_snapshot,
         shrink_ratio,
         verify_index,
@@ -346,7 +346,7 @@ pub(crate) fn bank_to_stream<W>(
     serde_style: SerdeStyle,
     stream: &mut BufWriter<W>,
     bank: &Bank,
-    snapshot_storages: &[SnapshotStorage],
+    snapshot_storages: &[Vec<Arc<AccountStorageEntry>>],
 ) -> Result<(), Error>
 where
     W: Write,
@@ -368,7 +368,7 @@ pub(crate) fn bank_to_stream_no_extra_fields<W>(
     serde_style: SerdeStyle,
     stream: &mut BufWriter<W>,
     bank: &Bank,
-    snapshot_storages: &[SnapshotStorage],
+    snapshot_storages: &[Vec<Arc<AccountStorageEntry>>],
 ) -> Result<(), Error>
 where
     W: Write,
@@ -391,7 +391,7 @@ where
 fn reserialize_bank_fields_with_new_hash<W, R>(
     stream_reader: &mut BufReader<R>,
     stream_writer: &mut BufWriter<W>,
-    accounts_hash: &Hash,
+    accounts_hash: &AccountsHash,
     incremental_snapshot_persistence: Option<&BankIncrementalSnapshotPersistence>,
 ) -> Result<(), Error>
 where
@@ -414,7 +414,7 @@ where
 pub fn reserialize_bank_with_new_accounts_hash(
     bank_snapshots_dir: impl AsRef<Path>,
     slot: Slot,
-    accounts_hash: &Hash,
+    accounts_hash: &AccountsHash,
     incremental_snapshot_persistence: Option<&BankIncrementalSnapshotPersistence>,
 ) -> bool {
     let bank_post = snapshot_utils::get_bank_snapshots_dir(bank_snapshots_dir, slot);
@@ -446,7 +446,7 @@ pub fn reserialize_bank_with_new_accounts_hash(
 
 struct SerializableBankAndStorage<'a, C> {
     bank: &'a Bank,
-    snapshot_storages: &'a [SnapshotStorage],
+    snapshot_storages: &'a [Vec<Arc<AccountStorageEntry>>],
     phantom: std::marker::PhantomData<C>,
 }
 
@@ -462,7 +462,7 @@ impl<'a, C: TypeContext<'a>> Serialize for SerializableBankAndStorage<'a, C> {
 #[cfg(test)]
 struct SerializableBankAndStorageNoExtra<'a, C> {
     bank: &'a Bank,
-    snapshot_storages: &'a [SnapshotStorage],
+    snapshot_storages: &'a [Vec<Arc<AccountStorageEntry>>],
     phantom: std::marker::PhantomData<C>,
 }
 
@@ -495,7 +495,7 @@ impl<'a, C> From<SerializableBankAndStorageNoExtra<'a, C>> for SerializableBankA
 struct SerializableAccountsDb<'a, C> {
     accounts_db: &'a AccountsDb,
     slot: Slot,
-    account_storage_entries: &'a [SnapshotStorage],
+    account_storage_entries: &'a [Vec<Arc<AccountStorageEntry>>],
     phantom: std::marker::PhantomData<C>,
 }
 
@@ -522,7 +522,6 @@ fn reconstruct_bank_from_fields<E>(
     debug_keys: Option<Arc<HashSet<Pubkey>>>,
     additional_builtins: Option<&Builtins>,
     account_secondary_indexes: AccountSecondaryIndexes,
-    caching_enabled: bool,
     limit_load_slot_count_from_snapshot: Option<usize>,
     shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
@@ -539,7 +538,6 @@ where
         storage_and_next_append_vec_id,
         genesis_config,
         account_secondary_indexes,
-        caching_enabled,
         limit_load_slot_count_from_snapshot,
         shrink_ratio,
         verify_index,
@@ -661,7 +659,6 @@ fn reconstruct_accountsdb_from_fields<E>(
     storage_and_next_append_vec_id: StorageAndNextAppendVecId,
     genesis_config: &GenesisConfig,
     account_secondary_indexes: AccountSecondaryIndexes,
-    caching_enabled: bool,
     limit_load_slot_count_from_snapshot: Option<usize>,
     shrink_ratio: AccountShrinkThreshold,
     verify_index: bool,
@@ -677,7 +674,6 @@ where
         account_paths.to_vec(),
         &genesis_config.cluster_type,
         account_secondary_indexes,
-        caching_enabled,
         shrink_ratio,
         accounts_db_config,
         accounts_update_notifier,
@@ -716,10 +712,6 @@ where
         next_append_vec_id,
     } = storage_and_next_append_vec_id;
 
-    // discard any slots with no storage entries
-    // this can happen if a non-root slot was serialized
-    // but non-root stores should not be included in the snapshot
-    storage.retain(|_slot, stores| !stores.read().unwrap().is_empty());
     assert!(
         !storage.is_empty(),
         "At least one storage entry must exist from deserializing stream"
@@ -729,17 +721,31 @@ where
     let max_append_vec_id = next_append_vec_id - 1;
     assert!(
         max_append_vec_id <= AppendVecId::MAX / 2,
-        "Storage id {} larger than allowed max",
-        max_append_vec_id
+        "Storage id {max_append_vec_id} larger than allowed max"
     );
 
     // Process deserialized data, set necessary fields in self
-    accounts_db
-        .bank_hashes
-        .write()
-        .unwrap()
-        .insert(snapshot_slot, snapshot_bank_hash_info);
-    accounts_db.storage.map.extend(storage.into_iter());
+    let old_accounts_delta_hash = accounts_db.set_accounts_delta_hash_from_snapshot(
+        snapshot_slot,
+        snapshot_bank_hash_info.accounts_delta_hash,
+    );
+    assert!(
+        old_accounts_delta_hash.is_none(),
+        "There should not already be an AccountsDeltaHash at slot {snapshot_slot}: {old_accounts_delta_hash:?}",
+        );
+    let old_accounts_hash = accounts_db
+        .set_accounts_hash_from_snapshot(snapshot_slot, snapshot_bank_hash_info.accounts_hash);
+    assert!(
+        old_accounts_hash.is_none(),
+        "There should not already be an AccountsHash at slot {snapshot_slot}: {old_accounts_hash:?}",
+    );
+    let old_stats = accounts_db
+        .update_bank_hash_stats_from_snapshot(snapshot_slot, snapshot_bank_hash_info.stats);
+    assert!(
+        old_stats.is_none(),
+        "There should not already be a BankHashStats at slot {snapshot_slot}: {old_stats:?}",
+    );
+    accounts_db.storage.initialize(storage);
     accounts_db
         .next_id
         .store(next_append_vec_id, Ordering::Release);
@@ -772,11 +778,7 @@ where
         .set(rent_paying_accounts_by_partition)
         .unwrap();
 
-    accounts_db.maybe_add_filler_accounts(
-        &genesis_config.epoch_schedule,
-        &genesis_config.rent,
-        snapshot_slot,
-    );
+    accounts_db.maybe_add_filler_accounts(&genesis_config.epoch_schedule, snapshot_slot);
 
     handle.join().unwrap();
     measure_notify.stop();

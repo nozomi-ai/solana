@@ -5,6 +5,8 @@
 
 use {
     log::*,
+    rayon::iter::{IntoParallelIterator, ParallelIterator},
+    solana_connection_cache::connection_cache::ConnectionCache,
     solana_rpc_client::rpc_client::RpcClient,
     solana_rpc_client_api::{config::RpcProgramAccountsConfig, response::Response},
     solana_sdk::{
@@ -25,7 +27,6 @@ use {
         transaction::{self, Transaction, VersionedTransaction},
         transport::Result as TransportResult,
     },
-    solana_tpu_client::{connection_cache::ConnectionCache, tpu_connection::TpuConnection},
     std::{
         io,
         net::SocketAddr,
@@ -37,84 +38,77 @@ use {
     },
 };
 
-struct ClientOptimizer {
-    cur_index: AtomicUsize,
-    experiment_index: AtomicUsize,
-    experiment_done: AtomicBool,
-    times: RwLock<Vec<u64>>,
-    num_clients: usize,
-}
+pub mod temporary_pub {
+    use super::*;
 
-fn min_index(array: &[u64]) -> (u64, usize) {
-    let mut min_time = std::u64::MAX;
-    let mut min_index = 0;
-    for (i, time) in array.iter().enumerate() {
-        if *time < min_time {
-            min_time = *time;
-            min_index = i;
-        }
-    }
-    (min_time, min_index)
-}
-
-impl ClientOptimizer {
-    fn new(num_clients: usize) -> Self {
-        Self {
-            cur_index: AtomicUsize::new(0),
-            experiment_index: AtomicUsize::new(0),
-            experiment_done: AtomicBool::new(false),
-            times: RwLock::new(vec![std::u64::MAX; num_clients]),
-            num_clients,
-        }
+    pub struct ClientOptimizer {
+        cur_index: AtomicUsize,
+        experiment_index: AtomicUsize,
+        experiment_done: AtomicBool,
+        times: RwLock<Vec<u64>>,
+        num_clients: usize,
     }
 
-    fn experiment(&self) -> usize {
-        if self.experiment_index.load(Ordering::Relaxed) < self.num_clients {
-            let old = self.experiment_index.fetch_add(1, Ordering::Relaxed);
-            if old < self.num_clients {
-                old
+    impl ClientOptimizer {
+        pub fn new(num_clients: usize) -> Self {
+            Self {
+                cur_index: AtomicUsize::new(0),
+                experiment_index: AtomicUsize::new(0),
+                experiment_done: AtomicBool::new(false),
+                times: RwLock::new(vec![std::u64::MAX; num_clients]),
+                num_clients,
+            }
+        }
+
+        pub fn experiment(&self) -> usize {
+            if self.experiment_index.load(Ordering::Relaxed) < self.num_clients {
+                let old = self.experiment_index.fetch_add(1, Ordering::Relaxed);
+                if old < self.num_clients {
+                    old
+                } else {
+                    self.best()
+                }
             } else {
                 self.best()
             }
-        } else {
-            self.best()
         }
-    }
 
-    fn report(&self, index: usize, time_ms: u64) {
-        if self.num_clients > 1
-            && (!self.experiment_done.load(Ordering::Relaxed) || time_ms == std::u64::MAX)
-        {
-            trace!(
-                "report {} with {} exp: {}",
-                index,
-                time_ms,
-                self.experiment_index.load(Ordering::Relaxed)
-            );
-
-            self.times.write().unwrap()[index] = time_ms;
-
-            if index == (self.num_clients - 1) || time_ms == std::u64::MAX {
-                let times = self.times.read().unwrap();
-                let (min_time, min_index) = min_index(&times);
+        pub fn report(&self, index: usize, time_ms: u64) {
+            if self.num_clients > 1
+                && (!self.experiment_done.load(Ordering::Relaxed) || time_ms == std::u64::MAX)
+            {
                 trace!(
-                    "done experimenting min: {} time: {} times: {:?}",
-                    min_index,
-                    min_time,
-                    times
+                    "report {} with {} exp: {}",
+                    index,
+                    time_ms,
+                    self.experiment_index.load(Ordering::Relaxed)
                 );
 
-                // Only 1 thread should grab the num_clients-1 index, so this should be ok.
-                self.cur_index.store(min_index, Ordering::Relaxed);
-                self.experiment_done.store(true, Ordering::Relaxed);
+                self.times.write().unwrap()[index] = time_ms;
+
+                if index == (self.num_clients - 1) || time_ms == std::u64::MAX {
+                    let times = self.times.read().unwrap();
+                    let (min_time, min_index) = min_index(&times);
+                    trace!(
+                        "done experimenting min: {} time: {} times: {:?}",
+                        min_index,
+                        min_time,
+                        times
+                    );
+
+                    // Only 1 thread should grab the num_clients-1 index, so this should be ok.
+                    self.cur_index.store(min_index, Ordering::Relaxed);
+                    self.experiment_done.store(true, Ordering::Relaxed);
+                }
             }
         }
-    }
 
-    fn best(&self) -> usize {
-        self.cur_index.load(Ordering::Relaxed)
+        pub fn best(&self) -> usize {
+            self.cur_index.load(Ordering::Relaxed)
+        }
     }
 }
+use temporary_pub::*;
 
 /// An object for querying and sending transactions to the network.
 pub struct ThinClient {
@@ -225,7 +219,7 @@ impl ThinClient {
                     let conn = self.connection_cache.get_connection(self.tpu_addr());
                     // Send the transaction if there has been no confirmation (e.g. the first time)
                     #[allow(clippy::needless_borrow)]
-                    conn.send_wire_transaction(&wire_transaction)?;
+                    conn.send_data(&wire_transaction)?;
                 }
 
                 if let Ok(confirmed_blocks) = self.poll_for_signature_confirmation(
@@ -250,7 +244,7 @@ impl ThinClient {
         }
         Err(io::Error::new(
             io::ErrorKind::Other,
-            format!("retry_transfer failed in {} retries", tries),
+            format!("retry_transfer failed in {tries} retries"),
         )
         .into())
     }
@@ -458,7 +452,7 @@ impl SyncClient for ThinClient {
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
-                    format!("send_transaction failed with error {:?}", err),
+                    format!("send_transaction failed with error {err:?}"),
                 )
             })?;
         Ok(status)
@@ -475,7 +469,7 @@ impl SyncClient for ThinClient {
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
-                    format!("send_transaction failed with error {:?}", err),
+                    format!("send_transaction failed with error {err:?}"),
                 )
             })?;
         Ok(status)
@@ -495,7 +489,7 @@ impl SyncClient for ThinClient {
             .map_err(|err| {
                 io::Error::new(
                     io::ErrorKind::Other,
-                    format!("send_transaction failed with error {:?}", err),
+                    format!("send_transaction failed with error {err:?}"),
                 )
             })?;
         Ok(slot)
@@ -612,7 +606,9 @@ impl AsyncClient for ThinClient {
         transaction: VersionedTransaction,
     ) -> TransportResult<Signature> {
         let conn = self.connection_cache.get_connection(self.tpu_addr());
-        conn.serialize_and_send_transaction(&transaction)?;
+        let wire_transaction =
+            bincode::serialize(&transaction).expect("serialize Transaction in send_batch");
+        conn.send_data(&wire_transaction)?;
         Ok(transaction.signatures[0])
     }
 
@@ -621,14 +617,30 @@ impl AsyncClient for ThinClient {
         batch: Vec<VersionedTransaction>,
     ) -> TransportResult<()> {
         let conn = self.connection_cache.get_connection(self.tpu_addr());
-        conn.par_serialize_and_send_transaction_batch(&batch[..])?;
+        let buffers = batch
+            .into_par_iter()
+            .map(|tx| bincode::serialize(&tx).expect("serialize Transaction in send_batch"))
+            .collect::<Vec<_>>();
+        conn.send_data_batch(&buffers)?;
         Ok(())
     }
 }
 
+fn min_index(array: &[u64]) -> (u64, usize) {
+    let mut min_time = std::u64::MAX;
+    let mut min_index = 0;
+    for (i, time) in array.iter().enumerate() {
+        if *time < min_time {
+            min_time = *time;
+            min_index = i;
+        }
+    }
+    (min_time, min_index)
+}
+
 #[cfg(test)]
 mod tests {
-    use {super::*, rayon::prelude::*};
+    use super::*;
 
     #[test]
     fn test_client_optimizer() {

@@ -1,4 +1,6 @@
 module.exports = {
+  // load the API specific sidebars file
+  ...require("./sidebars/api.js"),
   introductionSidebar: [
     {
       type: "category",
@@ -156,6 +158,16 @@ module.exports = {
               id: "developing/lookup-tables",
               label: "Address Lookup Tables",
             },
+            {
+              type: "doc",
+              id: "developing/intro/transaction_fees",
+              label: "Transaction Fees",
+            },
+            {
+              type: "doc",
+              id: "developing/transaction_confirmation",
+              label: "Transaction Confirmation",
+            },
           ],
         },
         {
@@ -185,8 +197,8 @@ module.exports = {
       label: "Clients",
       items: [
         {
-          type: "doc",
-          id: "developing/clients/jsonrpc-api",
+          type: "link",
+          href: "/api",
           label: "JSON RPC API",
         },
         {
@@ -239,6 +251,11 @@ module.exports = {
           type: "doc",
           id: "developing/on-chain-programs/examples",
           label: "Program Examples",
+        },
+        {
+          type: "doc",
+          id: "developing/on-chain-programs/limitations",
+          label: "Limitations",
         },
         {
           type: "doc",

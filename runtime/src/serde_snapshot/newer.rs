@@ -5,6 +5,7 @@ use {
         *,
     },
     crate::{
+        accounts_hash::AccountsHash,
         ancestors::AncestorsForSerialization,
         stakes::{serde_stakes_enum_compat, StakesEnum},
     },
@@ -269,14 +270,27 @@ impl<'a> TypeContext<'a> for Context {
                 )
             }));
         let slot = serializable_db.slot;
-        let hash: BankHashInfo = serializable_db
+        let accounts_delta_hash = serializable_db
             .accounts_db
-            .bank_hashes
-            .read()
-            .unwrap()
-            .get(&serializable_db.slot)
-            .unwrap_or_else(|| panic!("No bank_hashes entry for slot {}", serializable_db.slot))
-            .clone();
+            .get_accounts_delta_hash(slot)
+            .unwrap_or_else(|| panic!("Missing accounts delta hash entry for slot {slot}"));
+        // NOTE: The accounts hash is calculated in AHV, which is *after* a bank snapshot is taken
+        // (and serialized here).  Thus it is expected that an accounts hash is *not* found for
+        // this slot, and a placeholder value will be used instead.  The real accounts hash will be
+        // set by `reserialize_bank_with_new_accounts_hash` from AHV.
+        let accounts_hash = serializable_db
+            .accounts_db
+            .get_accounts_hash(slot)
+            .unwrap_or_default();
+        let stats = serializable_db
+            .accounts_db
+            .get_bank_hash_stats(slot)
+            .unwrap_or_else(|| panic!("Missing bank hash stats entry for slot {slot}"));
+        let bank_hash_info = BankHashInfo {
+            accounts_delta_hash,
+            accounts_hash,
+            stats,
+        };
 
         let historical_roots = serializable_db
             .accounts_db
@@ -293,7 +307,7 @@ impl<'a> TypeContext<'a> for Context {
             entries,
             version,
             slot,
-            hash,
+            bank_hash_info,
             historical_roots,
             historical_roots_with_hash,
         )
@@ -346,7 +360,7 @@ impl<'a> TypeContext<'a> for Context {
     fn reserialize_bank_fields_with_hash<R, W>(
         stream_reader: &mut BufReader<R>,
         stream_writer: &mut BufWriter<W>,
-        accounts_hash: &Hash,
+        accounts_hash: &AccountsHash,
         incremental_snapshot_persistence: Option<&BankIncrementalSnapshotPersistence>,
     ) -> std::result::Result<(), Box<bincode::ErrorKind>>
     where

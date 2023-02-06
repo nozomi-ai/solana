@@ -33,7 +33,8 @@ pub struct BlockstoreInsertionMetrics {
     pub num_recovered_failed_sig: usize,
     pub num_recovered_failed_invalid: usize,
     pub num_recovered_exists: usize,
-    pub num_data_shreds_exists: usize,
+    pub num_repaired_data_shreds_exists: usize,
+    pub num_turbine_data_shreds_exists: usize,
     pub num_data_shreds_invalid: usize,
     pub num_data_shreds_blockstore_error: usize,
     pub num_coding_shreds_exists: usize,
@@ -102,7 +103,16 @@ impl BlockstoreInsertionMetrics {
                 self.num_recovered_blockstore_error,
                 i64
             ),
-            ("num_data_shreds_exists", self.num_data_shreds_exists, i64),
+            (
+                "num_repaired_data_shreds_exists",
+                self.num_repaired_data_shreds_exists,
+                i64
+            ),
+            (
+                "num_turbine_data_shreds_exists",
+                self.num_turbine_data_shreds_exists,
+                i64
+            ),
             ("num_data_shreds_invalid", self.num_data_shreds_invalid, i64),
             (
                 "num_data_shreds_blockstore_error",
@@ -230,7 +240,7 @@ pub struct BlockstoreRocksDbColumnFamilyMetrics {
 
 impl BlockstoreRocksDbColumnFamilyMetrics {
     /// Report metrics with the specified metric name and column family tag.
-    /// The metric name and the column family tag is embeded in the parameter
+    /// The metric name and the column family tag is embedded in the parameter
     /// `metric_name_and_cf_tag` with the following format.
     ///
     /// For example, "blockstore_rocksdb_cfs,cf_name=shred_data".

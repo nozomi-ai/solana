@@ -8,7 +8,7 @@ use {
         cluster_nodes::{make_test_cluster, new_cluster_nodes, ClusterNodes},
         retransmit_stage::RetransmitStage,
     },
-    solana_gossip::contact_info::ContactInfo,
+    solana_gossip::legacy_contact_info::LegacyContactInfo as ContactInfo,
     solana_ledger::{
         genesis_utils::{create_genesis_config, GenesisConfigInfo},
         shred::{Shred, ShredFlags},
@@ -49,7 +49,7 @@ fn get_retransmit_peers_deterministic(
             0,
             0,
         );
-        let (_root_distance, _neighbors, _children) = cluster_nodes.get_retransmit_peers(
+        let _retransmit_peers = cluster_nodes.get_retransmit_peers(
             slot_leader,
             &shred.id(),
             root_bank,

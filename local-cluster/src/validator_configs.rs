@@ -27,6 +27,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         new_hard_forks: config.new_hard_forks.clone(),
         known_validators: config.known_validators.clone(),
         repair_validators: config.repair_validators.clone(),
+        repair_whitelist: config.repair_whitelist.clone(),
         gossip_validators: config.gossip_validators.clone(),
         halt_on_known_validators_accounts_hash_mismatch: config
             .halt_on_known_validators_accounts_hash_mismatch,
@@ -48,7 +49,6 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         no_os_disk_stats_reporting: config.no_os_disk_stats_reporting,
         poh_pinned_cpu_core: config.poh_pinned_cpu_core,
         account_indexes: config.account_indexes.clone(),
-        accounts_db_caching_enabled: config.accounts_db_caching_enabled,
         warp_slot: config.warp_slot,
         accounts_db_test_hash_calculation: config.accounts_db_test_hash_calculation,
         accounts_db_skip_shrink: config.accounts_db_skip_shrink,
@@ -64,6 +64,7 @@ pub fn safe_clone_config(config: &ValidatorConfig) -> ValidatorConfig {
         ledger_column_options: config.ledger_column_options.clone(),
         runtime_config: config.runtime_config.clone(),
         replay_slots_concurrently: config.replay_slots_concurrently,
+        banking_trace_dir_byte_limit: config.banking_trace_dir_byte_limit,
     }
 }
 

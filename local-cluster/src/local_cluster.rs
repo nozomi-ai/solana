@@ -6,12 +6,14 @@ use {
     },
     itertools::izip,
     log::*,
+    solana_client::{connection_cache::ConnectionCache, thin_client::ThinClient},
     solana_core::{
         tower_storage::FileTowerStorage,
         validator::{Validator, ValidatorConfig, ValidatorStartProgress},
     },
     solana_gossip::{
-        cluster_info::Node, contact_info::ContactInfo, gossip_service::discover_cluster,
+        cluster_info::Node, gossip_service::discover_cluster,
+        legacy_contact_info::LegacyContactInfo as ContactInfo,
     },
     solana_ledger::create_new_tmp_ledger,
     solana_runtime::{
@@ -20,6 +22,7 @@ use {
             ValidatorVoteKeypairs,
         },
         snapshot_config::SnapshotConfig,
+        snapshot_utils::create_accounts_run_and_snapshot_dirs,
     },
     solana_sdk::{
         account::{Account, AccountSharedData},
@@ -41,10 +44,8 @@ use {
     },
     solana_stake_program::{config::create_account as create_stake_config_account, stake_state},
     solana_streamer::socket::SocketAddrSpace,
-    solana_thin_client::thin_client::ThinClient,
-    solana_tpu_client::connection_cache::{
-        ConnectionCache, DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP,
-        DEFAULT_TPU_USE_QUIC,
+    solana_tpu_client::tpu_client::{
+        DEFAULT_TPU_CONNECTION_POOL_SIZE, DEFAULT_TPU_ENABLE_UDP, DEFAULT_TPU_USE_QUIC,
     },
     solana_vote_program::{
         vote_instruction,
@@ -147,16 +148,20 @@ impl LocalCluster {
         config: &mut ValidatorConfig,
         ledger_path: &Path,
     ) {
-        config.account_paths = vec![ledger_path.join("accounts")];
+        config.account_paths = vec![
+            create_accounts_run_and_snapshot_dirs(ledger_path.join("accounts"))
+                .unwrap()
+                .0,
+        ];
         config.tower_storage = Arc::new(FileTowerStorage::new(ledger_path.to_path_buf()));
-        if let Some(snapshot_config) = &mut config.snapshot_config {
-            let dummy: PathBuf = DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into();
-            if snapshot_config.full_snapshot_archives_dir == dummy {
-                snapshot_config.full_snapshot_archives_dir = ledger_path.to_path_buf();
-            }
-            if snapshot_config.bank_snapshots_dir == dummy {
-                snapshot_config.bank_snapshots_dir = ledger_path.join("snapshot");
-            }
+
+        let snapshot_config = &mut config.snapshot_config;
+        let dummy: PathBuf = DUMMY_SNAPSHOT_CONFIG_PATH_MARKER.into();
+        if snapshot_config.full_snapshot_archives_dir == dummy {
+            snapshot_config.full_snapshot_archives_dir = ledger_path.to_path_buf();
+        }
+        if snapshot_config.bank_snapshots_dir == dummy {
+            snapshot_config.bank_snapshots_dir = ledger_path.join("snapshot");
         }
     }
 

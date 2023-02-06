@@ -7,7 +7,7 @@ use {
         cluster_info_vote_listener::VerifiedVoteReceiver,
         completed_data_sets_service::CompletedDataSetsSender,
         repair_response,
-        repair_service::{OutstandingShredRepairs, RepairInfo, RepairService},
+        repair_service::{DumpedSlotsReceiver, OutstandingShredRepairs, RepairInfo, RepairService},
         result::{Error, Result},
     },
     crossbeam_channel::{unbounded, Receiver, RecvTimeoutError, Sender},
@@ -233,14 +233,14 @@ where
     ws_metrics.shred_receiver_elapsed_us += shred_receiver_elapsed.as_us();
     ws_metrics.run_insert_count += 1;
     let handle_packet = |packet: &Packet| {
-        if packet.meta.discard() {
+        if packet.meta().discard() {
             return None;
         }
         let shred = shred::layout::get_shred(packet)?;
         let shred = Shred::new_from_serialized_shred(shred.to_vec()).ok()?;
-        if packet.meta.repair() {
+        if packet.meta().repair() {
             let repair_info = RepairMeta {
-                _from_addr: packet.meta.socket_addr(),
+                _from_addr: packet.meta().socket_addr(),
                 // If can't parse the nonce, dump the packet.
                 nonce: repair_response::nonce(packet)?,
             };
@@ -261,7 +261,7 @@ where
     ws_metrics.num_repairs += repair_infos.iter().filter(|r| r.is_some()).count();
     ws_metrics.num_shreds_received += shreds.len();
     for packet in packets.iter().flat_map(PacketBatch::iter) {
-        let addr = packet.meta.socket_addr();
+        let addr = packet.meta().socket_addr();
         *ws_metrics.addrs.entry(addr).or_default() += 1;
     }
 
@@ -276,7 +276,7 @@ where
     prune_shreds_elapsed.stop();
     ws_metrics.prune_shreds_elapsed_us += prune_shreds_elapsed.as_us();
 
-    let (completed_data_sets, inserted_indices) = blockstore.insert_shreds_handle_duplicate(
+    let completed_data_sets = blockstore.insert_shreds_handle_duplicate(
         shreds,
         repairs,
         Some(leader_schedule_cache),
@@ -286,11 +286,6 @@ where
         reed_solomon_cache,
         metrics,
     )?;
-    for index in inserted_indices {
-        if repair_infos[index].is_some() {
-            metrics.num_repair += 1;
-        }
-    }
 
     completed_data_sets_sender.try_send(completed_data_sets)?;
     Ok(())
@@ -322,6 +317,7 @@ impl WindowService {
         completed_data_sets_sender: CompletedDataSetsSender,
         duplicate_slots_sender: DuplicateSlotSender,
         ancestor_hashes_replay_update_receiver: AncestorHashesReplayUpdateReceiver,
+        dumped_slots_receiver: DumpedSlotsReceiver,
     ) -> WindowService {
         let outstanding_requests = Arc::<RwLock<OutstandingShredRepairs>>::default();
 
@@ -336,6 +332,7 @@ impl WindowService {
             verified_vote_receiver,
             outstanding_requests.clone(),
             ancestor_hashes_replay_update_receiver,
+            dumped_slots_receiver,
         );
 
         let (duplicate_sender, duplicate_receiver) = unbounded();
@@ -410,7 +407,7 @@ impl WindowService {
         };
         let thread_pool = rayon::ThreadPoolBuilder::new()
             .num_threads(get_thread_count().min(8))
-            .thread_name(|i| format!("solWinInsert{:02}", i))
+            .thread_name(|i| format!("solWinInsert{i:02}"))
             .build()
             .unwrap();
         let reed_solomon_cache = ReedSolomonCache::default();
@@ -483,7 +480,7 @@ mod test {
     use {
         super::*,
         solana_entry::entry::{create_ticks, Entry},
-        solana_gossip::contact_info::ContactInfo,
+        solana_gossip::legacy_contact_info::LegacyContactInfo as ContactInfo,
         solana_ledger::{
             blockstore::{make_many_slot_entries, Blockstore},
             get_tmp_ledger_path,
@@ -592,7 +589,7 @@ mod test {
             0,   // version
         );
         let mut shreds = vec![shred.clone(), shred.clone(), shred];
-        let _from_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8080);
+        let _from_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8080);
         let repair_meta = RepairMeta {
             _from_addr,
             nonce: 0,

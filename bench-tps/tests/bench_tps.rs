@@ -8,6 +8,11 @@ use {
         send_batch::generate_durable_nonce_accounts,
         spl_convert::FromOtherSolana,
     },
+    solana_client::{
+        connection_cache::ConnectionCache,
+        thin_client::ThinClient,
+        tpu_client::{TpuClient, TpuClientConfig},
+    },
     solana_core::validator::ValidatorConfig,
     solana_faucet::faucet::run_local_faucet,
     solana_local_cluster::{
@@ -25,11 +30,6 @@ use {
     },
     solana_streamer::socket::SocketAddrSpace,
     solana_test_validator::TestValidatorGenesis,
-    solana_thin_client::thin_client::ThinClient,
-    solana_tpu_client::{
-        connection_cache::ConnectionCache,
-        tpu_client::{TpuClient, TpuClientConfig},
-    },
     std::{sync::Arc, time::Duration},
 };
 
@@ -131,14 +131,14 @@ fn test_bench_tps_test_validator(config: Config) {
         CommitmentConfig::processed(),
     ));
     let websocket_url = test_validator.rpc_pubsub_url();
-    let connection_cache = Arc::new(ConnectionCache::default());
+    let connection_cache = ConnectionCache::default();
 
     let client = Arc::new(
         TpuClient::new_with_connection_cache(
             rpc_client,
             &websocket_url,
             TpuClientConfig::default(),
-            connection_cache,
+            Arc::new(connection_cache.into()),
         )
         .unwrap(),
     );

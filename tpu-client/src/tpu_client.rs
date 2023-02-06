@@ -1,10 +1,8 @@
 pub use crate::nonblocking::tpu_client::TpuSenderError;
 use {
-    crate::{
-        connection_cache::ConnectionCache,
-        nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
-    },
+    crate::nonblocking::tpu_client::TpuClient as NonblockingTpuClient,
     rayon::iter::{IntoParallelIterator, ParallelIterator},
+    solana_connection_cache::connection_cache::{ConnectionCache, ConnectionManager},
     solana_rpc_client::rpc_client::RpcClient,
     solana_sdk::{clock::Slot, transaction::Transaction, transport::Result as TransportResult},
     std::{
@@ -19,20 +17,29 @@ use {
     tokio::time::Duration,
 };
 
-type Result<T> = std::result::Result<T, TpuSenderError>;
+pub const DEFAULT_TPU_ENABLE_UDP: bool = false;
+pub const DEFAULT_TPU_USE_QUIC: bool = true;
+pub const DEFAULT_TPU_CONNECTION_POOL_SIZE: usize = 4;
+
+pub mod temporary_pub {
+    use super::*;
+
+    pub type Result<T> = std::result::Result<T, TpuSenderError>;
+
+    /// Send at ~100 TPS
+    #[cfg(feature = "spinner")]
+    pub const SEND_TRANSACTION_INTERVAL: Duration = Duration::from_millis(10);
+    /// Retry batch send after 4 seconds
+    #[cfg(feature = "spinner")]
+    pub const TRANSACTION_RESEND_INTERVAL: Duration = Duration::from_secs(4);
+}
+use temporary_pub::*;
 
 /// Default number of slots used to build TPU socket fanout set
 pub const DEFAULT_FANOUT_SLOTS: u64 = 12;
 
 /// Maximum number of slots used to build TPU socket fanout set
 pub const MAX_FANOUT_SLOTS: u64 = 100;
-
-/// Send at ~100 TPS
-#[cfg(feature = "spinner")]
-pub(crate) const SEND_TRANSACTION_INTERVAL: Duration = Duration::from_millis(10);
-/// Retry batch send after 4 seconds
-#[cfg(feature = "spinner")]
-pub(crate) const TRANSACTION_RESEND_INTERVAL: Duration = Duration::from_secs(4);
 
 /// Config params for `TpuClient`
 #[derive(Clone, Debug)]
@@ -103,9 +110,14 @@ impl TpuClient {
         rpc_client: Arc<RpcClient>,
         websocket_url: &str,
         config: TpuClientConfig,
+        connection_manager: Box<dyn ConnectionManager>,
     ) -> Result<Self> {
-        let create_tpu_client =
-            NonblockingTpuClient::new(rpc_client.get_inner_client().clone(), websocket_url, config);
+        let create_tpu_client = NonblockingTpuClient::new(
+            rpc_client.get_inner_client().clone(),
+            websocket_url,
+            config,
+            connection_manager,
+        );
         let tpu_client =
             tokio::task::block_in_place(|| rpc_client.runtime().block_on(create_tpu_client))?;
 

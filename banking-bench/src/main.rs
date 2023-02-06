@@ -5,7 +5,11 @@ use {
     log::*,
     rand::{thread_rng, Rng},
     rayon::prelude::*,
-    solana_core::banking_stage::BankingStage,
+    solana_client::connection_cache::ConnectionCache,
+    solana_core::{
+        banking_stage::BankingStage,
+        banking_trace::{BankingPacketBatch, BankingTracer, BANKING_TRACE_DIR_DEFAULT_BYTE_LIMIT},
+    },
     solana_gossip::cluster_info::{ClusterInfo, Node},
     solana_ledger::{
         blockstore::Blockstore,
@@ -16,7 +20,7 @@ use {
     solana_measure::measure::Measure,
     solana_perf::packet::{to_packet_batches, PacketBatch},
     solana_poh::poh_recorder::{create_test_recorder, PohRecorder, WorkingBankEntry},
-    solana_runtime::{bank::Bank, bank_forks::BankForks, cost_model::CostModel},
+    solana_runtime::{bank::Bank, bank_forks::BankForks},
     solana_sdk::{
         compute_budget::ComputeBudgetInstruction,
         hash::Hash,
@@ -28,7 +32,7 @@ use {
         transaction::Transaction,
     },
     solana_streamer::socket::SocketAddrSpace,
-    solana_tpu_client::connection_cache::{ConnectionCache, DEFAULT_TPU_CONNECTION_POOL_SIZE},
+    solana_tpu_client::tpu_client::DEFAULT_TPU_CONNECTION_POOL_SIZE,
     std::{
         sync::{atomic::Ordering, Arc, RwLock},
         thread::sleep,
@@ -255,6 +259,12 @@ fn main() {
                 .help("Skip transaction sanity execution"),
         )
         .arg(
+            Arg::new("trace_banking")
+                .long("trace-banking")
+                .takes_value(false)
+                .help("Enable banking tracing"),
+        )
+        .arg(
             Arg::new("write_lock_contention")
                 .long("write-lock-contention")
                 .takes_value(true)
@@ -320,9 +330,6 @@ fn main() {
         ..
     } = create_genesis_config(mint_total);
 
-    let (verified_sender, verified_receiver) = unbounded();
-    let (vote_sender, vote_receiver) = unbounded();
-    let (tpu_vote_sender, tpu_vote_receiver) = unbounded();
     let (replay_vote_sender, _replay_vote_receiver) = unbounded();
     let bank0 = Bank::new_for_benches(&genesis_config);
     let bank_forks = Arc::new(RwLock::new(BankForks::new(bank0)));
@@ -346,7 +353,6 @@ fn main() {
     .take(num_chunks)
     .collect();
 
-    // fund all the accounts
     let total_num_transactions: u64 = all_packets
         .iter()
         .map(|packets_for_single_iteration| packets_for_single_iteration.transactions.len() as u64)
@@ -356,6 +362,7 @@ fn main() {
         num_banking_threads, total_num_transactions
     );
 
+    // fund all the accounts
     all_packets.iter().for_each(|packets_for_single_iteration| {
         packets_for_single_iteration
             .transactions
@@ -383,7 +390,7 @@ fn main() {
                 .iter()
                 .for_each(|tx| {
                     let res = bank.process_transaction(tx);
-                    assert!(res.is_ok(), "sanity test transactions error: {:?}", res);
+                    assert!(res.is_ok(), "sanity test transactions error: {res:?}");
                 });
         });
         bank.clear_signatures();
@@ -394,7 +401,7 @@ fn main() {
                 let res =
                     bank.process_transactions(packets_for_single_iteration.transactions.iter());
                 for r in res {
-                    assert!(r.is_ok(), "sanity parallel execution error: {:?}", r);
+                    assert!(r.is_ok(), "sanity parallel execution error: {r:?}");
                 }
                 bank.clear_signatures();
             });
@@ -409,11 +416,22 @@ fn main() {
         let leader_schedule_cache = Arc::new(LeaderScheduleCache::new_from_bank(&bank));
         let (exit, poh_recorder, poh_service, signal_receiver) =
             create_test_recorder(&bank, &blockstore, None, Some(leader_schedule_cache));
-        let cluster_info = ClusterInfo::new(
-            Node::new_localhost().info,
-            Arc::new(Keypair::new()),
-            SocketAddrSpace::Unspecified,
-        );
+        let (banking_tracer, tracer_thread) =
+            BankingTracer::new(matches.is_present("trace_banking").then_some((
+                &blockstore.banking_trace_path(),
+                exit.clone(),
+                BANKING_TRACE_DIR_DEFAULT_BYTE_LIMIT,
+            )))
+            .unwrap();
+        let (non_vote_sender, non_vote_receiver) = banking_tracer.create_channel_non_vote();
+        let (tpu_vote_sender, tpu_vote_receiver) = banking_tracer.create_channel_tpu_vote();
+        let (gossip_vote_sender, gossip_vote_receiver) =
+            banking_tracer.create_channel_gossip_vote();
+        let cluster_info = {
+            let keypair = Arc::new(Keypair::new());
+            let node = Node::new_localhost_with_pubkey(&keypair.pubkey());
+            ClusterInfo::new(node.info, keypair, SocketAddrSpace::Unspecified)
+        };
         let cluster_info = Arc::new(cluster_info);
         let tpu_use_quic = matches.is_present("tpu_use_quic");
         let connection_cache = match tpu_use_quic {
@@ -423,13 +441,12 @@ fn main() {
         let banking_stage = BankingStage::new_num_threads(
             &cluster_info,
             &poh_recorder,
-            verified_receiver,
+            non_vote_receiver,
             tpu_vote_receiver,
-            vote_receiver,
+            gossip_vote_receiver,
             num_banking_threads,
             None,
             replay_vote_sender,
-            Arc::new(RwLock::new(CostModel::default())),
             None,
             Arc::new(connection_cache),
             bank_forks.clone(),
@@ -461,8 +478,8 @@ fn main() {
                     packet_batch_index,
                     timestamp(),
                 );
-                verified_sender
-                    .send((vec![packet_batch.clone()], None))
+                non_vote_sender
+                    .send(BankingPacketBatch::new((vec![packet_batch.clone()], None)))
                     .unwrap();
             }
 
@@ -574,15 +591,18 @@ fn main() {
             (1000.0 * 1000.0 * (txs_processed - base_tx_count) as f64) / (total_us as f64),
         );
 
-        drop(verified_sender);
+        drop(non_vote_sender);
         drop(tpu_vote_sender);
-        drop(vote_sender);
+        drop(gossip_vote_sender);
         exit.store(true, Ordering::Relaxed);
         banking_stage.join().unwrap();
         debug!("waited for banking_stage");
         poh_service.join().unwrap();
         sleep(Duration::from_secs(1));
         debug!("waited for poh_service");
+        if let Some(tracer_thread) = tracer_thread {
+            tracer_thread.join().unwrap().unwrap();
+        }
     }
     let _unused = Blockstore::destroy(&ledger_path);
 }

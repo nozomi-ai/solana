@@ -585,7 +585,6 @@ impl<T: IndexValue> InMemAccountsIndex<T> {
         let mut found_slot = false;
         let mut found_other_slot = false;
         (0..slot_list.len())
-            .into_iter()
             .rev() // rev since we delete from the list in some cases
             .for_each(|slot_list_index| {
                 let (cur_slot, cur_account_info) = &slot_list[slot_list_index];
@@ -595,10 +594,7 @@ impl<T: IndexValue> InMemAccountsIndex<T> {
                     let matched_other_slot = !matched_slot;
                     assert!(
                         !(found_slot && matched_slot || matched_other_slot && found_other_slot),
-                        "{:?}, slot: {}, other_slot: {:?}",
-                        slot_list,
-                        slot,
-                        other_slot
+                        "{slot_list:?}, slot: {slot}, other_slot: {other_slot:?}"
                     );
 
                     let is_cur_account_cached = cur_account_info.is_cached();
@@ -799,12 +795,12 @@ impl<T: IndexValue> InMemAccountsIndex<T> {
         assert!(!only_add_if_already_held || start_holding);
         let start = match range.start_bound() {
             Bound::Included(bound) | Bound::Excluded(bound) => *bound,
-            Bound::Unbounded => Pubkey::new(&[0; 32]),
+            Bound::Unbounded => Pubkey::from([0; 32]),
         };
 
         let end = match range.end_bound() {
             Bound::Included(bound) | Bound::Excluded(bound) => *bound,
-            Bound::Unbounded => Pubkey::new(&[0xff; 32]),
+            Bound::Unbounded => Pubkey::from([0xff; 32]),
         };
 
         // this becomes inclusive - that is ok - we are just roughly holding a range of items.
@@ -1597,10 +1593,10 @@ mod tests {
     fn test_hold_range_in_memory() {
         let bucket = new_disk_buckets_for_test::<u64>();
         // 0x81 is just some other range
-        let all = Pubkey::new(&[0; 32])..=Pubkey::new(&[0xff; 32]);
+        let all = Pubkey::from([0; 32])..=Pubkey::from([0xff; 32]);
         let ranges = [
             all.clone(),
-            Pubkey::new(&[0x81; 32])..=Pubkey::new(&[0xff; 32]),
+            Pubkey::from([0x81; 32])..=Pubkey::from([0xff; 32]),
         ];
         for range in ranges.clone() {
             assert!(bucket.cache_ranges_held.read().unwrap().is_empty());
@@ -1700,8 +1696,7 @@ mod tests {
                     &mut reclaims,
                     reclaim
                 ),
-                "other_slot: {:?}",
-                other_slot
+                "other_slot: {other_slot:?}"
             );
             assert_eq!(slot_list, vec![at_new_slot]);
             assert!(reclaims.is_empty());
@@ -1724,8 +1719,7 @@ mod tests {
                 &mut reclaims,
                 reclaim
             ),
-            "other_slot: {:?}",
-            other_slot
+            "other_slot: {other_slot:?}"
         );
         assert_eq!(slot_list, vec![at_new_slot]);
         assert_eq!(reclaims, expected_reclaims);
@@ -1745,8 +1739,7 @@ mod tests {
                 &mut reclaims,
                 reclaim
             ),
-            "other_slot: {:?}",
-            other_slot
+            "other_slot: {other_slot:?}"
         );
         assert_eq!(slot_list, vec![at_new_slot]);
         assert_eq!(
@@ -1764,7 +1757,6 @@ mod tests {
         {
             // up to 3 ignored slot account_info (ignored means not 'new_slot', not 'other_slot', but different slot #s which could exist in the slot_list initially)
             possible_initial_slot_list_contents = (0..3)
-                .into_iter()
                 .map(|i| (ignored_slot + i, ignored_value + i))
                 .collect::<Vec<_>>();
             // account_info that already exists in the slot_list AT 'new_slot'
@@ -1838,24 +1830,21 @@ mod tests {
                     }
                     assert_eq!(
                         expected_result, result,
-                        "return value different. other: {:?}, {:?}, {:?}, original: {:?}",
-                        other_slot, expected, slot_list, original
+                        "return value different. other: {other_slot:?}, {expected:?}, {slot_list:?}, original: {original:?}"
                     );
                     // sort for easy comparison
                     expected_reclaims.sort_unstable();
                     reclaims.sort_unstable();
                     assert_eq!(
                         expected_reclaims, reclaims,
-                        "reclaims different. other: {:?}, {:?}, {:?}, original: {:?}",
-                        other_slot, expected, slot_list, original
+                        "reclaims different. other: {other_slot:?}, {expected:?}, {slot_list:?}, original: {original:?}"
                     );
                     // sort for easy comparison
                     slot_list.sort_unstable();
                     expected.sort_unstable();
                     assert_eq!(
                         slot_list, expected,
-                        "slot_list different. other: {:?}, {:?}, {:?}, original: {:?}",
-                        other_slot, expected, slot_list, original
+                        "slot_list different. other: {other_slot:?}, {expected:?}, {slot_list:?}, original: {original:?}"
                     );
                 }
             }
